@@ -226,8 +226,16 @@ export function createFoxgate(options: FoxgateOptions): { gate: Gate; host: Host
   async function load(): Promise<State> {
     const raw = await store.get(KEY);
     if (raw === undefined || raw === null) return { time: 0, grants: [], requests: [] };
-    if (!isPlain(raw) || typeof raw.time !== "number" || !Array.isArray(raw.grants) || !Array.isArray(raw.requests)) throw new FoxgateError("bad-state", "The stored foxgate state has a wrong shape.");
+    if (!isPlain(raw) || typeof raw.time !== "number" || !Number.isFinite(raw.time) || !Array.isArray(raw.grants) || !Array.isArray(raw.requests)) throw new FoxgateError("bad-state", "The stored foxgate state has a wrong shape.");
     return raw as unknown as State;
+  }
+
+  // The time to use: never earlier than one already seen (G8), and never a
+  // value that is not a finite number (K1), which would disable every expiry.
+  function timeOf(state: State): number {
+    const time: unknown = clock();
+    if (typeof time !== "number" || !Number.isFinite(time)) throw new FoxgateError("bad-state", `The clock gave ${String(time)}, not a finite number.`);
+    return Math.max(time, state.time);
   }
 
   async function notify(event: DecisionEvent) {
@@ -247,8 +255,12 @@ export function createFoxgate(options: FoxgateOptions): { gate: Gate; host: Host
       } catch (error) {
         return deny("storage-error", `Cannot read the foxgate state: ${messageOf(error)}`);
       }
-      // Never use a time earlier than one already seen (G8).
-      const now = Math.max(clock(), state.time);
+      let now: number;
+      try {
+        now = timeOf(state);
+      } catch (error) {
+        return deny("clock-error", messageOf(error));
+      }
       state.time = now;
       const out = await work(state, now);
       try {
@@ -328,7 +340,7 @@ export function createFoxgate(options: FoxgateOptions): { gate: Gate; host: Host
   const answer = <T>(id: string, work: (request: ApprovalRequest, now: number) => Promise<{ event: DecisionEvent; result: T }>) =>
     locked(async () => {
       const state = await load();
-      const now = Math.max(clock(), state.time);
+      const now = timeOf(state);
       const request = state.requests.find((r) => r.id === id && r.status === "pending" && r.expiresAt > now);
       if (!request) throw new FoxgateError("not-found", `No waiting request has the ID ${JSON.stringify(id)}.`);
       const { event, result } = await work(request, now);
@@ -342,7 +354,7 @@ export function createFoxgate(options: FoxgateOptions): { gate: Gate; host: Host
     addGrant: (input) =>
       locked(async () => {
         const state = await load();
-        const grant = parseGrant(input, Math.max(clock(), state.time), options.publicSuffix);
+        const grant = parseGrant(input, timeOf(state), options.publicSuffix);
         state.grants.push(grant);
         await store.set(KEY, state);
         return grant;
@@ -360,7 +372,7 @@ export function createFoxgate(options: FoxgateOptions): { gate: Gate; host: Host
     pending: () =>
       locked(async () => {
         const state = await load();
-        const now = Math.max(clock(), state.time);
+        const now = timeOf(state);
         return state.requests.filter((r) => r.status === "pending" && r.expiresAt > now);
       }),
     approve: (id) =>
