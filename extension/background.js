@@ -7,6 +7,8 @@ import { createFoxgate, storageAreaStore } from "../src/index.ts";
 
 const log = [];
 const { gate, host } = createFoxgate({
+  // The host registers each tool with its scope. The agent cannot add tools.
+  tools: { submit_form: "submit" },
   store: storageAreaStore(browser.storage.local),
   publicSuffix: browser.publicSuffix,
   onDecision: (event) => {
