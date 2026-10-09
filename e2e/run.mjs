@@ -35,8 +35,8 @@ async function ask(page) {
   return poll(page, (b) => [...document.querySelectorAll("#pending li")].map((li) => li.dataset.id).find((id) => !b.includes(id)), before);
 }
 
-async function flow(page, name) {
-  const shot = async (file) => shots && (await page.screenshot({ path: join(shots, file) }));
+async function flow(page, name, shoot = false) {
+  const shot = async (file) => shoot && (await page.screenshot({ path: join(shots, file) }));
   await poll(page, () => document.body.dataset.ready === "1");
   let id = await ask(page);
   check(`${name} E1: the request shows the exact action`, EXPECTED_TEXT, await page.evaluate((i) => document.querySelector(`#pending li[data-id="${i}"] pre`).textContent, id));
@@ -75,7 +75,7 @@ try {
   const stored = await popup.evaluate(() => browser.storage.local.get(null));
   check("E5: storage.local holds the foxgate state and nothing else", ["foxgate"], Object.keys(stored));
   check("E5: the stored requests reached each status", ["rejected", "used", "used"], stored.foxgate.requests.map((r) => r.status).toSorted());
-  check("E5: no key in storage", false, /key/i.test(JSON.stringify(Object.keys(stored.foxgate))));
+  check("E5: no key in storage", false, /"key"|CryptoKey/i.test(JSON.stringify(stored)));
   if (shots) {
     // The same popup over http, with a stub browser object, for screenshots.
     mkdirSync(shots, { recursive: true });
@@ -85,7 +85,7 @@ try {
     const html = readFileSync(join(dir, "popup.html"), "utf8").replace('<script src="popup.js">', '<script src="stub.js"></script><script src="background.js"></script><script src="popup.js">');
     writeFileSync(join(dir, "preview.html"), html);
     site = await serve(dir);
-    await flow(await fox.open(`${site.url}/preview.html`), "Preview");
+    await flow(await fox.open(`${site.url}/preview.html`), "Preview", true);
     rmSync(dir, { recursive: true, force: true });
   }
 } catch (error) {
