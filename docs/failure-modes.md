@@ -70,3 +70,17 @@ answers `allow`, `deny` with a reason, or `ask`. The planner holds only the
 | G14 | The `onDecision` hook throws (for example, the audit log is full). | `deny` `hook-failed`, and the grant use is not counted. Each decision calls the hook one time. | `tests/gate.test.ts` |
 | G15 | The host revokes a grant. | The next check gives `deny` `no-grant`. | `tests/gate.test.ts` |
 | G16 | Two grants match and the first one has no uses left. | foxgate uses the second grant. | `tests/gate.test.ts` |
+
+## Spend caps
+
+A grant can have a spend cap: an amount in minor units (cents) and a currency.
+The cap is for all actions together, not for each action.
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| S1 | The action amount takes the total over the cap. | `deny` `spend-cap`, also on a grant that needs approval. Never `ask` for an action that cannot be allowed. | `tests/gate.test.ts` |
+| S2 | The action currency is not the cap currency. | `deny` `currency`. foxgate does not convert money. | `tests/gate.test.ts` |
+| S3 | Two actions run at the same time. Each one is under the cap, but both together are over it. | Exactly one `allow`. Checks run one at a time. | `tests/gate.test.ts` |
+| S4 | The amount is not a whole number of minor units (`12.5`, `-1`, more than 2^53). | `deny` `bad-action`. | `tests/gate.test.ts` |
+| S5 | The app restarts. | A new gate on the same storage sees the amount already spent. | `tests/gate.test.ts` |
+| S6 | The host gives a spend cap that is not whole minor units, or a `pay` action has no amount. | `addGrant` throws a `FoxgateError`. The action gets `deny` `bad-action`. | `tests/gate.test.ts` |
