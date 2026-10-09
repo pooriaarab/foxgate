@@ -115,3 +115,17 @@ action only if every byte of it is the same.
 | # | Failure mode | Wanted behaviour | Test |
 |---|---|---|---|
 | T1 | A `browser.storage.local` style area returns `{ key: value }` from `get`, not the value. | `storageAreaStore(area)` returns the value, and `undefined` for a missing key. The demo extension E2E test runs it on the real `browser.storage.local`. | `tests/approvals.test.ts` |
+
+## The demo extension in Firefox
+
+`pnpm e2e` loads the built demo extension in a real Firefox and drives its
+popup. The checks below need a real browser, so the E2E test covers them.
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| E1 | The approval view does not show the exact action, so a human approves something they did not see. | The waiting request shows the full canonical JSON, byte for byte. | `e2e/run.mjs` |
+| E2 | The agent changes the action after the human approves it. | The popup shows `deny: action-changed`. The token is then used up: the approved action gets `deny: token-used`. | `e2e/run.mjs` |
+| E3 | The approved action runs two times. | The first redeem shows `allow`. The second shows `deny: token-used`. | `e2e/run.mjs` |
+| E4 | The real Firefox public suffix list (`browser.publicSuffix`, Firefox 153+) is missing or not used. | The background refuses a `*.co.uk` grant with `bad-domain` and takes `*.example.co.uk`. | `e2e/run.mjs` |
+| E5 | The state does not reach `browser.storage.local`, or the signing key goes there. | `storage.local` holds the grants and requests. It holds no key. | `e2e/run.mjs` |
+| E6 | The human clicks Deny. | The request leaves the list, and the same action gets `deny: rejected`. | `e2e/run.mjs` |
