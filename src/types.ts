@@ -10,6 +10,12 @@ export interface Money {
   currency: string;
 }
 
+/**
+ * How the host registers a tool: its scope, and for a tool that costs money,
+ * a function that reads the amount from the args. The planner cannot change it.
+ */
+export type ToolSpec = Scope | { scope: Scope; amount?: (args: Record<string, unknown>) => Money };
+
 /** One thing an agent wants to do. Approval tokens bind to all of it. */
 export interface Action {
   tool: string;
@@ -60,6 +66,9 @@ export interface ApprovalRequest {
 
 export type DenyReason =
   | "bad-action"
+  | "unknown-tool"
+  | "wrong-scope"
+  | "wrong-amount"
   | "no-grant"
   | "expired"
   | "used-up"

@@ -6,9 +6,11 @@ import { matchesPattern, normalizeHost, parsePattern, type PublicSuffix } from "
 import { FoxgateError, type FoxgateErrorCode } from "./errors.js";
 import { memoryStore } from "./store.js";
 import { checkKey, newKey, readToken, signToken } from "./token.js";
-import type { Action, ApprovalRequest, Decision, DecisionEvent, DenyReason, Grant, GrantInput, Money, Store } from "./types.js";
+import type { Action, ApprovalRequest, Decision, DecisionEvent, DenyReason, Grant, GrantInput, Money, Scope, Store, ToolSpec } from "./types.js";
 
 export interface FoxgateOptions {
+  /** Every tool the planner may use, with its scope. An unknown tool gets "deny". */
+  tools: Record<string, ToolSpec>;
   /** Where grants, requests, and spend live. Default: memoryStore(). */
   store?: Store;
   /** The clock, in ms since 1970. Default: Date.now. */
@@ -68,7 +70,23 @@ export const sha256 = async (text: string) => hex(new Uint8Array(await crypto.su
 export const deny = (reason: DenyReason, message: string): Decision => ({ decision: "deny", reason, message });
 const badAction = (why: string) => new FoxgateError("bad-action", `The action is not valid: ${why}.`);
 const badGrant = (why: string) => new FoxgateError("bad-grant", `The grant is not valid: ${why}.`);
+const badTools = (why: string) => new FoxgateError("bad-tools", `The tools option is not valid: ${why}.`);
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+/** A refusal with its own deny reason, from parseAction. */
+class Refused extends Error {
+  readonly reason: DenyReason;
+
+  constructor(reason: DenyReason, message: string) {
+    super(message);
+    this.reason = reason;
+  }
+}
+
+interface Tool {
+  scope: Scope;
+  amount?: (args: Record<string, unknown>) => Money;
+}
 
 const isPlain = (value: unknown): value is Record<string, unknown> => {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
@@ -82,18 +100,59 @@ function parseMoney(value: unknown, code: FoxgateErrorCode): Money {
   return { value: value.value as number, currency: value.currency as string };
 }
 
-/** Check an action and return it normalized, with its canonical JSON text. */
-export function parseAction(input: unknown): { action: Action; text: string } {
+/** Read the host tool registry. Throws FoxgateError `bad-tools`. */
+export function parseTools(input: unknown): Map<string, Tool> {
+  const fail = badTools;
+  if (!isPlain(input) || Object.keys(input).length === 0) throw fail("give an object that maps each tool name to its scope");
+  const tools = new Map<string, Tool>();
+  for (const [name, spec] of Object.entries(input)) {
+    const scope = isPlain(spec) ? spec.scope : spec;
+    const amount = isPlain(spec) ? spec.amount : undefined;
+    if (typeof scope !== "string" || !SCOPES.includes(scope)) throw fail(`${name} needs a scope: ${SCOPES.join(", ")}`);
+    if (amount !== undefined && typeof amount !== "function") throw fail(`the amount of ${name} must be a function`);
+    if (scope === "pay" && amount === undefined) throw fail(`${name} is a pay tool, so it needs an amount function`);
+    tools.set(name, { scope: scope as Scope, ...(amount && { amount: amount as Tool["amount"] }) });
+  }
+  return tools;
+}
+
+/** The deny reason for an error from parseAction. */
+export const refusalOf = (error: unknown): DenyReason => (error instanceof Refused ? error.reason : "bad-action");
+
+/**
+ * Check an action against the tool registry and return it normalized, with
+ * its canonical JSON text. The scope and the amount come from the registry,
+ * never from the planner (docs/failure-modes.md P1-P8).
+ */
+export function parseAction(input: unknown, tools: Map<string, Tool>): { action: Action; text: string } {
   const fail = badAction;
   if (!isPlain(input)) throw fail("it is not an object");
   const extra = Object.keys(input).find((key) => !ACTION_KEYS.has(key));
   if (extra !== undefined) throw fail(`it has the unknown field ${JSON.stringify(extra)}`);
   const { tool, args, domain, scope, amount } = input;
   if (typeof tool !== "string" || tool === "" || tool.length > 128) throw fail("tool must be a string of 1 to 128 characters");
+  const spec = tools.get(tool);
+  if (!spec) throw new Refused("unknown-tool", `The host did not register the tool ${JSON.stringify(tool)}.`);
   if (!isPlain(args)) throw fail("args must be a JSON object");
   if (typeof scope !== "string" || !SCOPES.includes(scope)) throw fail(`scope must be one of ${SCOPES.join(", ")}`);
-  if (scope === "pay" && amount === undefined) throw fail("a pay action needs an amount");
-  const action = { tool, args, domain: normalizeHost(domain as string), scope, ...(amount === undefined ? {} : { amount: parseMoney(amount, "bad-action") }) };
+  if (scope !== spec.scope) throw new Refused("wrong-scope", `The tool ${tool} has the scope ${spec.scope}, not ${scope}.`);
+  const clean = JSON.parse(canonicalJson(args)) as Record<string, unknown>;
+  let hostAmount: Money | undefined;
+  if (spec.amount) {
+    let raw: unknown;
+    try {
+      raw = spec.amount(clean);
+    } catch (error) {
+      throw fail(`the amount function of ${tool} failed: ${messageOf(error)}`);
+    }
+    hostAmount = parseMoney(raw, "bad-action");
+  }
+  if (amount !== undefined) {
+    const given = parseMoney(amount, "bad-action");
+    if (!hostAmount) throw new Refused("wrong-amount", `The tool ${tool} has no amount.`);
+    if (given.value !== hostAmount.value || given.currency !== hostAmount.currency) throw new Refused("wrong-amount", `The args of ${tool} cost ${hostAmount.value} ${hostAmount.currency}, not ${given.value} ${given.currency}.`);
+  }
+  const action = { tool, args: clean, domain: normalizeHost(domain as string), scope, ...(hostAmount && { amount: hostAmount }) };
   const text = canonicalJson(action);
   return { action: JSON.parse(text) as Action, text };
 }
@@ -147,7 +206,8 @@ export function use(grant: Grant, action: Action): void {
   if (grant.spendCap && action.amount) grant.spent += action.amount.value;
 }
 
-export function createFoxgate(options: FoxgateOptions = {}): { gate: Gate; host: Host } {
+export function createFoxgate(options: FoxgateOptions): { gate: Gate; host: Host } {
+  const tools = parseTools(options?.tools);
   const store = options.store ?? memoryStore();
   const clock = options.now ?? Date.now;
   const requestTtl = options.requestTtlMs ?? 10 * 60_000;
@@ -207,9 +267,9 @@ export function createFoxgate(options: FoxgateOptions = {}): { gate: Gate; host:
   async function checkWork(state: State, now: number, input: unknown): Promise<Outcome> {
     let parsed: { action: Action; text: string };
     try {
-      parsed = parseAction(input);
+      parsed = parseAction(input, tools);
     } catch (error) {
-      return { decision: deny("bad-action", messageOf(error)) };
+      return { decision: deny(refusalOf(error), messageOf(error)) };
     }
     const { action, text } = parsed;
     const matching = state.grants.filter((g) => g.scope === action.scope && (!g.tools || g.tools.includes(action.tool)) && g.domains.some((p) => allows(p, action.domain)));
@@ -250,9 +310,9 @@ export function createFoxgate(options: FoxgateOptions = {}): { gate: Gate; host:
     request.status = "used";
     let parsed: { action: Action; text: string };
     try {
-      parsed = parseAction(input);
+      parsed = parseAction(input, tools);
     } catch (error) {
-      return { requestId, decision: deny("bad-action", messageOf(error)) };
+      return { requestId, decision: deny(refusalOf(error), messageOf(error)) };
     }
     const { action, text } = parsed;
     if ((await sha256(text)) !== payload.dig) return { action, requestId, decision: deny("action-changed", "This is not the action that the human approved.") };

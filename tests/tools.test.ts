@@ -53,8 +53,8 @@ describe("the tool registry", () => {
   it("P7: denies when the amount function fails", async () => {
     const { gate, host } = createFoxgate({ tools: TOOLS });
     await host.addGrant({ scope: "pay", domains: [domain], approval: "never" });
-    for (const total of [12.5, -1, "5", undefined]) {
-      expect(reason(await gate.check({ tool: "buy", args: { total }, domain, scope: "pay" })), String(total)).toBe("bad-action");
+    for (const value of [12.5, -1, "5", undefined]) {
+      expect(reason(await gate.check({ tool: "buy", args: { total: value }, domain, scope: "pay" })), String(value)).toBe("bad-action");
     }
     const throwing = createFoxgate({ tools: { buy: { scope: "pay", amount: () => { throw new Error("no price"); } } } });
     await throwing.host.addGrant({ scope: "pay", domains: [domain], approval: "never" });

@@ -1,5 +1,5 @@
 {
-  "startedAt": "2026-10-09T03:46:53.219Z",
+  "startedAt": "2026-10-09T04:13:19.481Z",
   "checks": [
     {
       "name": "Firefox E1: the request shows the exact action",
@@ -77,42 +77,6 @@
       "name": "E5: no key in storage",
       "expected": false,
       "actual": false,
-      "ok": true
-    },
-    {
-      "name": "Preview E1: the request shows the exact action",
-      "expected": "{\"args\":{\"fields\":{\"email\":\"sam@example.com\",\"plan\":\"basic\"},\"form\":\"#checkout\"},\"domain\":\"checkout.example.com\",\"scope\":\"submit\",\"tool\":\"submit_form\"}",
-      "actual": "{\"args\":{\"fields\":{\"email\":\"sam@example.com\",\"plan\":\"basic\"},\"form\":\"#checkout\"},\"domain\":\"checkout.example.com\",\"scope\":\"submit\",\"tool\":\"submit_form\"}",
-      "ok": true
-    },
-    {
-      "name": "Preview E2: a changed action is refused",
-      "expected": "deny: action-changed",
-      "actual": "deny: action-changed",
-      "ok": true
-    },
-    {
-      "name": "Preview E2: the token is used up after a changed try",
-      "expected": "deny: token-used",
-      "actual": "deny: token-used",
-      "ok": true
-    },
-    {
-      "name": "Preview E3: the approved action runs",
-      "expected": "allow",
-      "actual": "allow",
-      "ok": true
-    },
-    {
-      "name": "Preview E3: the approved action runs only one time",
-      "expected": "deny: token-used",
-      "actual": "deny: token-used",
-      "ok": true
-    },
-    {
-      "name": "Preview E6: a rejected action is not asked again",
-      "expected": "deny: rejected",
-      "actual": "deny: rejected",
       "ok": true
     }
   ],
