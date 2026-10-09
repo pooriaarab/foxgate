@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "foxgate demo",
+  "version": "0.1.0",
+  "description": "Policy, exact-action approvals, and spend caps for AI agents.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "foxgate@pooriaarab",
+      "strict_min_version": "153.0",
+      "data_collection_permissions": {
+        "required": [
+          "none"
+        ]
+      }
+    }
+  },
+  "permissions": [
+    "storage",
+    "publicSuffix"
+  ],
+  "background": {
+    "scripts": [
+      "background.js"
+    ]
+  },
+  "action": {
+    "default_title": "foxgate demo",
+    "default_popup": "popup.html"
+  }
+}
