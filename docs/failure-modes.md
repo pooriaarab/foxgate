@@ -139,6 +139,17 @@ action only if every byte of it is the same.
 | A13 | The planner tries a changed action first, then the approved one. | The first try uses the token up. The second gets `deny` `token-used`. A planner that changes an approved action is not trusted again. | `tests/approvals.test.ts` |
 | A14 | The `onDecision` hook throws during `approve`. | `approve` throws. The request still waits, and no token exists. | `tests/approvals.test.ts` |
 
+## What the executor runs
+
+The planner can send an action with an uppercase domain or keys in another
+order, and still get `allow`. The executor must run the action that foxgate
+judged, not the planner's copy.
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| R1 | The executor runs the planner's copy of the action after `allow`. | Each `allow` from `check` and `redeem` holds `action`: the normalized action (punycode domain, the host amount, plain JSON args). The docs say to run this object. | `tests/approvals.test.ts` |
+| R2 | The caller changes the returned action. | The stored state and later decisions do not change. | `tests/approvals.test.ts` |
+
 ## Storage adapters
 
 | # | Failure mode | Wanted behaviour | Test |

@@ -141,8 +141,8 @@ Returns `{ gate, host }`. Both objects are frozen.
 
 | Method | Returns |
 |---|---|
-| `check(action)` | `allow` (and counts one use and the amount), `ask` with a `requestId`, or `deny` with a `reason`. |
-| `redeem(token, action)` | `allow` (and counts one use and the amount) or `deny`. Any try uses the token up. |
+| `check(action)` | `allow` with the normalized `action` (and counts one use and the amount), `ask` with a `requestId`, or `deny` with a `reason`. |
+| `redeem(token, action)` | `allow` with the normalized `action` (and counts one use and the amount), or `deny`. Any try uses the token up. |
 
 An action is `{ tool, args, domain, scope, amount? }`. `scope` is `read`,
 `fill`, `submit`, or `pay`, and it must be the scope that the host registered
@@ -150,6 +150,10 @@ for the tool. `args` is a JSON object. `amount` is `{ value, currency }` in
 whole minor units (cents). You can leave it out: foxgate takes the amount
 from the host function for the tool. A different amount gives `deny`
 `wrong-amount`. Any other field gives `deny` `bad-action`.
+
+When the answer is `allow`, run `decision.action`, not your own copy. It is
+the action that foxgate judged: the domain in punycode, the args as plain
+JSON, and the amount from the host function.
 
 ### `host` (keep this away from the planner)
 
