@@ -1,6 +1,14 @@
 // Failure modes G1-G16 and S1-S6 in docs/failure-modes.md.
 import { describe, expect, it } from "vitest";
-import { FoxgateError, createFoxgate, memoryStore, type Action, type DecisionEvent, type FoxgateOptions, type Store } from "../src/index.js";
+import { FoxgateError, createFoxgate, memoryStore, type Action, type DecisionEvent, type FoxgateOptions, type Store, type ToolSpec } from "../src/index.js";
+
+// The host registers each tool with its scope. A pay tool reads its amount from the args.
+const TOOLS: Record<string, ToolSpec> = {
+  fill: "fill",
+  click: "fill",
+  submit: "submit",
+  pay: { scope: "pay", amount: (args) => ({ value: args.price as number, currency: args.currency as string }) },
+};
 
 const psl = { getDomain: (host: string) => (host.split(".").length >= 2 && host !== "co.uk" ? host : null) };
 
@@ -8,12 +16,12 @@ function setup(options: Partial<FoxgateOptions> = {}) {
   let time = 1_000_000;
   const events: DecisionEvent[] = [];
   const store = options.store ?? memoryStore();
-  const fox = createFoxgate({ store, publicSuffix: psl, now: () => time, onDecision: (e) => void events.push(e), ...options });
+  const fox = createFoxgate({ tools: TOOLS, store, publicSuffix: psl, now: () => time, onDecision: (e) => void events.push(e), ...options });
   return { ...fox, store, events, setTime: (t: number) => (time = t) };
 }
 
 const fill: Action = { tool: "fill", args: { field: "email", value: "a@b.c" }, domain: "shop.example.com", scope: "fill" };
-const pay = (value: number, currency = "USD"): Action => ({ tool: "pay", args: { order: 1 }, domain: "shop.example.com", scope: "pay", amount: { value, currency } });
+const pay = (value: number, currency = "USD"): Action => ({ tool: "pay", args: { order: 1, price: value, currency }, domain: "shop.example.com", scope: "pay" });
 const reason = (d: { decision: string; reason?: string }) => (d.decision === "deny" ? d.reason : d.decision);
 
 describe("grants and the policy check", () => {
@@ -26,7 +34,7 @@ describe("grants and the policy check", () => {
     const { gate, host } = setup();
     await host.addGrant({ scope: "fill", domains: ["*.example.com"], tools: ["fill"] });
     expect(reason(await gate.check(fill))).toBe("allow");
-    expect(reason(await gate.check({ ...fill, scope: "submit" }))).toBe("no-grant");
+    expect(reason(await gate.check({ ...fill, scope: "submit" }))).toBe("wrong-scope");
     expect(reason(await gate.check({ ...fill, domain: "evil-example.com" }))).toBe("no-grant");
     expect(reason(await gate.check({ ...fill, tool: "click" }))).toBe("no-grant");
   });
@@ -48,7 +56,7 @@ describe("grants and the policy check", () => {
   it("G6: a bad action shape is denied, never thrown", async () => {
     const { gate, host } = setup();
     await host.addGrant({ scope: "pay", domains: ["shop.example.com"] });
-    const bad: unknown[] = [null, "x", {}, { ...fill, tool: "" }, { ...fill, args: [] }, { ...fill, args: { f: () => 1 } }, { ...fill, domain: "https://x.com" }, { ...fill, scope: "admin" }, { ...fill, scope: "pay" }];
+    const bad: unknown[] = [null, "x", {}, { ...fill, tool: "" }, { ...fill, args: [] }, { ...fill, args: { f: () => 1 } }, { ...fill, domain: "https://x.com" }, { ...fill, scope: "admin" }];
     for (const action of bad) expect(reason(await gate.check(action as Action))).toBe("bad-action");
   });
 
@@ -175,12 +183,9 @@ describe("spend caps", () => {
     expect(reason(await gate.check(pay(1, "usd")))).toBe("bad-action");
   });
 
-  it("S6: refuses a bad spend cap and a pay action with no amount", async () => {
-    const { gate, host } = setup();
+  it("S6: refuses a bad spend cap", async () => {
+    const { host } = setup();
     await expect(host.addGrant({ scope: "pay", domains: ["a.com"], spendCap: { value: 1.5, currency: "USD" } })).rejects.toBeInstanceOf(FoxgateError);
-    await host.addGrant({ scope: "pay", domains: ["shop.example.com"], approval: "never" });
-    expect(reason(await gate.check({ ...pay(1), amount: undefined }))).toBe("bad-action");
-    expect(reason(await gate.check(pay(1)))).toBe("allow");
   });
 
   it("S5: a new gate on the same storage sees what was spent", async () => {

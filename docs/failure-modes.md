@@ -55,11 +55,11 @@ answers `allow`, `deny` with a reason, or `ask`. The planner holds only the
 | # | Failure mode | Wanted behaviour | Test |
 |---|---|---|---|
 | G1 | No grant matches the action, or there are no grants at all. | `deny` with reason `no-grant`. Deny is the default. | `tests/gate.test.ts` |
-| G2 | The action scope is not the grant scope (a `fill` grant and a `submit` action). | `deny` `no-grant`. A scope allows only itself. | `tests/gate.test.ts` |
+| G2 | The action scope is not the scope that the host registered for the tool, or no grant has the scope of the action. | `deny` `wrong-scope` for the first. `deny` `no-grant` for the second. A scope allows only itself. | `tests/gate.test.ts` |
 | G3 | The action domain or tool is not in the grant. | `deny` `no-grant`. | `tests/gate.test.ts` |
 | G4 | The planner puts its own grant or approval into the action (`grant`, `grantId`, `approved: true`). | `deny` `bad-action`. An action has five known fields and no others. | `tests/gate.test.ts` |
 | G5 | The planner tries to add a grant or approve a request through the `gate` object. | The `gate` object has only `check` and `redeem`, and it is frozen. | `tests/gate.test.ts` |
-| G6 | The action has a bad shape: no tool, `args` that are not a JSON object, a bad domain, an unknown scope, a `pay` action with no amount. | `deny` `bad-action`. `check` never throws for a bad action. | `tests/gate.test.ts` |
+| G6 | The action has a bad shape: no tool, `args` that are not a JSON object, a bad domain, an unknown scope. | `deny` `bad-action`. `check` never throws for a bad action. | `tests/gate.test.ts` |
 | G7 | The grant has expired (`now >= expiresAt`). | `deny` `expired`. | `tests/gate.test.ts` |
 | G8 | The clock goes back after a grant expired. | The grant stays expired. foxgate stores the latest time it saw and never uses an earlier one. | `tests/gate.test.ts` |
 | G9 | The grant has no uses left (`maxUses`). | `deny` `used-up`. Only `allow` uses a grant. `ask` and `deny` do not. | `tests/gate.test.ts` |
@@ -70,6 +70,24 @@ answers `allow`, `deny` with a reason, or `ask`. The planner holds only the
 | G14 | The `onDecision` hook throws (for example, the audit log is full). | `deny` `hook-failed`, and the grant use is not counted. Each decision calls the hook one time. | `tests/gate.test.ts` |
 | G15 | The host revokes a grant. | The next check gives `deny` `no-grant`. | `tests/gate.test.ts` |
 | G16 | Two grants match and the first one has no uses left. | foxgate uses the second grant. | `tests/gate.test.ts` |
+
+## The tool registry
+
+The planner writes the action, so it can lie about the scope and the amount.
+The host registers each tool with its scope. For a tool that costs money, the
+host also gives a function that reads the amount from the args. foxgate uses
+the registry, not the planner, for both.
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| P1 | The planner gives a lower scope for a tool (`click_buy_now` as `read`) to pass a `read` grant. | `deny` `wrong-scope`. | `tests/tools.test.ts` |
+| P2 | The planner uses a tool that the host did not register, also when a grant has no `tools` list. | `deny` `unknown-tool`. A new tool is blocked until the host registers it. | `tests/tools.test.ts` |
+| P3 | The planner gives a lower `amount` than the args (`args.total` 99999, `amount` 1). | `deny` `wrong-amount`. The spend cap counts the amount from the host function. | `tests/tools.test.ts` |
+| P4 | The planner leaves out the amount. | foxgate puts the host amount into the action. The approval text shows it, and the spend cap counts it. | `tests/tools.test.ts` |
+| P5 | The planner gives an amount for a tool that has no amount function. | `deny` `wrong-amount`. | `tests/tools.test.ts` |
+| P6 | The registry is bad: empty, an unknown scope, or a `pay` tool with no amount function. | `createFoxgate` throws a `FoxgateError` with code `bad-tools`. | `tests/tools.test.ts` |
+| P7 | The amount function throws or returns an amount that is not whole minor units. | `deny` `bad-action`. | `tests/tools.test.ts` |
+| P8 | The tool name is a name that every object has, such as `toString` or `__proto__`. | `deny` `unknown-tool`. Only names that the host wrote count. | `tests/tools.test.ts` |
 
 ## Spend caps
 
@@ -83,7 +101,7 @@ The cap is for all actions together, not for each action.
 | S3 | Two actions run at the same time. Each one is under the cap, but both together are over it. | Exactly one `allow`. Checks run one at a time. | `tests/gate.test.ts` |
 | S4 | The amount is not a whole number of minor units (`12.5`, `-1`, more than 2^53). | `deny` `bad-action`. | `tests/gate.test.ts` |
 | S5 | The app restarts. | A new gate on the same storage sees the amount already spent. | `tests/gate.test.ts` |
-| S6 | The host gives a spend cap that is not whole minor units, or a `pay` action has no amount. | `addGrant` throws a `FoxgateError`. The action gets `deny` `bad-action`. | `tests/gate.test.ts` |
+| S6 | The host gives a spend cap that is not whole minor units. | `addGrant` throws a `FoxgateError`. | `tests/gate.test.ts` |
 
 ## Exact-action approvals
 
@@ -96,7 +114,7 @@ action only if every byte of it is the same.
 | # | Failure mode | Wanted behaviour | Test |
 |---|---|---|---|
 | A1 | The planner uses a token a second time (replay). | `deny` `token-used`. | `tests/approvals.test.ts` |
-| A2 | The planner uses a token for a different action: one changed arg, domain, tool, scope, or amount. | `deny` `action-changed`. | `tests/approvals.test.ts` |
+| A2 | The planner uses a token for a different action: one changed arg (also the arg that sets the amount), domain, or tool. | `deny` `action-changed`. | `tests/approvals.test.ts` |
 | A3 | The planner sends the same action with the args keys in a different order, or the domain in uppercase. | `allow`. Canonical JSON and the domain rules make them the same action. | `tests/approvals.test.ts` |
 | A4 | The token is changed (a later expiry, a different request ID, a changed signature) or is not a token at all. | `deny` `bad-token`. | `tests/approvals.test.ts` |
 | A5 | The planner signs its own token with its own key. | `deny` `bad-token`. Only the gate key can sign, and the gate never shows it. | `tests/approvals.test.ts` |

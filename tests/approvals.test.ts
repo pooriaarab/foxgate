@@ -2,15 +2,18 @@
 import { describe, expect, it } from "vitest";
 import { FoxgateError, createFoxgate, memoryStore, storageAreaStore, type Action, type FoxgateOptions } from "../src/index.js";
 
+const total = { scope: "pay", amount: (args: Record<string, unknown>) => ({ value: args.total as number, currency: "USD" }) } as const;
+const TOOLS = { pay: total, pay2: total };
+
 async function setup(options: Partial<FoxgateOptions> = {}) {
   let time = 1_000_000;
   const store = options.store ?? memoryStore();
-  const fox = createFoxgate({ store, now: () => time, ...options });
+  const fox = createFoxgate({ tools: TOOLS, store, now: () => time, ...options });
   await fox.host.addGrant({ scope: "pay", domains: ["shop.example.com"], spendCap: { value: 1000, currency: "USD" }, maxUses: 5 });
   return { ...fox, store, setTime: (t: number) => (time = t) };
 }
 
-const action: Action = { tool: "pay", args: { order: "A-1", items: [1, 2] }, domain: "shop.example.com", scope: "pay", amount: { value: 600, currency: "USD" } };
+const action: Action = { tool: "pay", args: { order: "A-1", items: [1, 2], total: 600 }, domain: "shop.example.com", scope: "pay", amount: { value: 600, currency: "USD" } };
 const reason = (d: { decision: string; reason?: string }) => (d.decision === "deny" ? d.reason : d.decision);
 
 async function approved(fox: Awaited<ReturnType<typeof setup>>, a: Action = action) {
@@ -32,12 +35,12 @@ describe("exact-action approvals", () => {
 
   it("A2: any change to the action is refused", async () => {
     const changes: Action[] = [
-      { ...action, args: { order: "A-2", items: [1, 2] } },
-      { ...action, args: { order: "A-1", items: [2, 1] } },
-      { ...action, args: { order: "A-1", items: [1, 2], extra: null } },
+      { ...action, args: { ...action.args, order: "A-2" } },
+      { ...action, args: { ...action.args, items: [2, 1] } },
+      { ...action, args: { ...action.args, extra: null } },
       { ...action, domain: "pay.example.com" },
       { ...action, tool: "pay2" },
-      { ...action, amount: { value: 601, currency: "USD" } },
+      { ...action, args: { ...action.args, total: 601 }, amount: { value: 601, currency: "USD" } },
     ];
     for (const changed of changes) {
       const fox = await setup();
@@ -49,7 +52,7 @@ describe("exact-action approvals", () => {
   it("A3: the same action in another key order or case is allowed", async () => {
     const fox = await setup();
     const token = await approved(fox);
-    const same = { amount: { currency: "USD", value: 600 }, scope: "pay", domain: "SHOP.example.com.", args: { items: [1, 2], order: "A-1" }, tool: "pay" } as Action;
+    const same = { amount: { currency: "USD", value: 600 }, scope: "pay", domain: "SHOP.example.com.", args: { total: 600, items: [1, 2], order: "A-1" }, tool: "pay" } as Action;
     expect(reason(await fox.gate.redeem(token, same))).toBe("allow");
   });
 
@@ -91,7 +94,7 @@ describe("exact-action approvals", () => {
     if (asked.decision !== "ask") throw new Error("expected ask");
     await fox.host.approve(asked.requestId);
     expect(await code(fox.host.approve(asked.requestId))).toBe("not-found");
-    const other = await fox.gate.check({ ...action, args: { order: "B" } });
+    const other = await fox.gate.check({ ...action, args: { ...action.args, order: "B" } });
     if (other.decision !== "ask") throw new Error("expected ask");
     fox.setTime(1_001_000);
     expect(await code(fox.host.approve(other.requestId))).toBe("not-found");
@@ -113,9 +116,9 @@ describe("exact-action approvals", () => {
     expect(reason(await revoked.gate.redeem(token, action))).toBe("no-grant");
     const spent = await setup();
     const first = await approved(spent);
-    const second = await approved(spent, { ...action, args: { order: "A-2" } });
+    const second = await approved(spent, { ...action, args: { ...action.args, order: "A-2" } });
     expect(reason(await spent.gate.redeem(first, action))).toBe("allow");
-    expect(reason(await spent.gate.redeem(second, { ...action, args: { order: "A-2" } }))).toBe("spend-cap");
+    expect(reason(await spent.gate.redeem(second, { ...action, args: { ...action.args, order: "A-2" } }))).toBe("spend-cap");
   });
 
   it("A10: two redeems at the same time give one allow", async () => {
@@ -136,16 +139,16 @@ describe("exact-action approvals", () => {
     const exportable = await crypto.subtle.generateKey({ name: "HMAC", hash: "SHA-256" }, true, ["sign", "verify"]);
     const aes = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt"]);
     for (const key of [exportable, aes]) {
-      expect(() => createFoxgate({ key })).toThrowError(expect.objectContaining({ code: "bad-key" }));
+      expect(() => createFoxgate({ tools: TOOLS, key })).toThrowError(expect.objectContaining({ code: "bad-key" }));
     }
     const good = await crypto.subtle.generateKey({ name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
-    expect(() => createFoxgate({ key: good })).not.toThrow();
+    expect(() => createFoxgate({ tools: TOOLS, key: good })).not.toThrow();
   });
 
   it("A13: a changed action uses the token up", async () => {
     const fox = await setup();
     const token = await approved(fox);
-    expect(reason(await fox.gate.redeem(token, { ...action, amount: { value: 1, currency: "USD" } }))).toBe("action-changed");
+    expect(reason(await fox.gate.redeem(token, { ...action, args: { ...action.args, total: 1 }, amount: { value: 1, currency: "USD" } }))).toBe("action-changed");
     expect(reason(await fox.gate.redeem(token, action))).toBe("token-used");
   });
 

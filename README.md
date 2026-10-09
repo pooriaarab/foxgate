@@ -24,11 +24,12 @@ npm i foxgate
 ```js
 import { createFoxgate } from "foxgate";
 
-// Your app keeps `host`. The AI planner gets only `gate`.
-const { gate, host } = createFoxgate();
+// Your app registers the tools and keeps `host`. The AI planner gets only `gate`.
+const tools = { checkout: { scope: "pay", amount: (args) => ({ value: args.total, currency: "USD" }) } };
+const { gate, host } = createFoxgate({ tools });
 await host.addGrant({ scope: "pay", domains: ["shop.example.com"], spendCap: { value: 5000, currency: "USD" } });
 
-const action = { tool: "checkout", args: { cart: "c-42" }, domain: "shop.example.com", scope: "pay", amount: { value: 1999, currency: "USD" } };
+const action = { tool: "checkout", args: { cart: "c-42", total: 1999 }, domain: "shop.example.com", scope: "pay" };
 const asked = await gate.check(action);
 console.log(asked.decision); // "ask"
 
@@ -36,7 +37,7 @@ const [request] = await host.pending();
 console.log(request.text); // the exact JSON that the human approves
 const token = await host.approve(asked.requestId);
 
-const changed = { ...action, amount: { value: 4999, currency: "USD" } };
+const changed = { ...action, args: { cart: "c-42", total: 4999 } };
 console.log((await gate.redeem(token, changed)).reason); // "action-changed"
 const token2 = await host.approve((await gate.check(action)).requestId);
 console.log((await gate.redeem(token2, action)).decision); // "allow"
@@ -51,7 +52,7 @@ console.log((await gate.redeem(token2, action)).reason); // "token-used"
 | An MCP server author | Tools that send email, open pull requests, or delete files | The server calls `gate.check` before each tool call and returns the request to the client for approval. |
 | A team that runs CI bots | A bot that buys test devices or cloud credits | A `pay` grant with `approval: "never"`, a `spendCap`, and `maxUses`. The bot cannot spend past the cap, also when two jobs run at the same time. |
 | A QA engineer | Browser automation that runs against staging sites | Exact-host grants keep the scripts on the staging hosts. `evil-staging.com` does not match `staging.com`. |
-| A developer on any agent framework | A LangChain, Vercel AI SDK, or custom tool loop | Wrap each tool in `check`, and in `redeem` when the answer is `ask`. Deny is the default, so a new tool is blocked until a grant names it. |
+| A developer on any agent framework | A LangChain, Vercel AI SDK, or custom tool loop | Wrap each tool in `check`, and in `redeem` when the answer is `ask`. Deny is the default, so a new tool is blocked until the host registers it with its scope and a grant covers it. |
 | An audit log author (for example foxtrail) | A tamper-evident record of agent decisions | The `onDecision` hook gets every decision before it takes effect. If the hook throws, the answer is `deny`. |
 
 ## How it works
@@ -70,17 +71,20 @@ flowchart TD
   X -- changed, used, expired, forged --> D
 ```
 
-1. `check` normalizes the action. It turns the domain into lowercase punycode
-   and writes the action as canonical JSON (sorted keys).
-2. It finds a grant with the same scope, a matching domain, and the tool.
-3. It refuses the action when the grant has expired, has no uses left, or the
+1. `check` looks up the tool in the host tool registry. An unknown tool, or a
+   scope or amount that differs from the registry, gets `deny`. The amount
+   comes from the host function for that tool, not from the planner.
+2. It normalizes the action. It turns the domain into lowercase punycode and
+   writes the action as canonical JSON (sorted keys).
+3. It finds a grant with the same scope, a matching domain, and the tool.
+4. It refuses the action when the grant has expired, has no uses left, or the
    amount takes it over its spend cap. It does not ask a human about an action
    that cannot run.
-4. For a grant that needs approval, it stores a request with the canonical
+5. For a grant that needs approval, it stores a request with the canonical
    text and its SHA-256 digest.
-5. `approve` signs a token with an HMAC-SHA256 key that JavaScript cannot
+6. `approve` signs a token with an HMAC-SHA256 key that JavaScript cannot
    export. The token holds the digest, an expiry time, and a one-time nonce.
-6. `redeem` checks the signature, the expiry, and the nonce. It uses the token
+7. `redeem` checks the signature, the expiry, and the nonce. It uses the token
    up, then compares the digest and checks the grant again.
 
 ```mermaid
@@ -117,12 +121,13 @@ check depends on stored state (uses, spend, waiting requests) and on a key
 that lives in one process. A one-shot command cannot keep either, so a CLI
 would show answers that differ from the real gate.
 
-### `createFoxgate(options?)`
+### `createFoxgate(options)`
 
 Returns `{ gate, host }`. Both objects are frozen.
 
 | Option | Default | What it does |
 |---|---|---|
+| `tools` | required | `{ name: scope }` or `{ name: { scope, amount } }`. Every tool the planner may use. `amount(args)` returns `{ value, currency }`, and a `pay` tool needs it. |
 | `store` | `memoryStore()` | Where grants, requests, and spend live. |
 | `now` | `Date.now` | The clock, in ms since 1970. |
 | `publicSuffix` | none | `{ getDomain(host) }`. Needed for `*.` patterns. In Firefox 153+, pass `browser.publicSuffix`. |
@@ -140,9 +145,11 @@ Returns `{ gate, host }`. Both objects are frozen.
 | `redeem(token, action)` | `allow` (and counts one use and the amount) or `deny`. Any try uses the token up. |
 
 An action is `{ tool, args, domain, scope, amount? }`. `scope` is `read`,
-`fill`, `submit`, or `pay`. `args` is a JSON object. `amount` is
-`{ value, currency }` in whole minor units (cents), and a `pay` action needs
-one. Any other field gives `deny` `bad-action`.
+`fill`, `submit`, or `pay`, and it must be the scope that the host registered
+for the tool. `args` is a JSON object. `amount` is `{ value, currency }` in
+whole minor units (cents). You can leave it out: foxgate takes the amount
+from the host function for the tool. A different amount gives `deny`
+`wrong-amount`. Any other field gives `deny` `bad-action`.
 
 ### `host` (keep this away from the planner)
 
@@ -162,7 +169,7 @@ subdomains only. `approval` is `"always"` or `"never"`. The default is
 
 ### Deny reasons
 
-`bad-action`, `no-grant`, `expired`, `used-up`, `spend-cap`, `currency`,
+`bad-action`, `unknown-tool`, `wrong-scope`, `wrong-amount`, `no-grant`, `expired`, `used-up`, `spend-cap`, `currency`,
 `too-many-requests`, `bad-token`, `token-expired`, `token-used`,
 `action-changed`, `rejected`, `hook-failed`, `storage-error`.
 
@@ -175,7 +182,7 @@ subdomains only. `approval` is `"always"` or `"never"`. The default is
 | `canonicalJson(value)` | Sorted-key JSON. Throws for values that JSON cannot hold exactly. |
 | `normalizeHost(host)` | Lowercase punycode host. Throws for a URL, a port, or a path. |
 | `parsePattern(pattern, publicSuffix?)`, `matchesPattern(host, pattern)` | The domain rules that grants use. |
-| `FoxgateError` | Has a `code`: `not-json`, `too-large`, `bad-domain`, `bad-grant`, `bad-action`, `not-found`, `bad-state`, `bad-key`, or `hook-failed`. |
+| `FoxgateError` | Has a `code`: `not-json`, `too-large`, `bad-domain`, `bad-grant`, `bad-action`, `not-found`, `bad-state`, `bad-key`, `hook-failed`, or `bad-tools`. |
 
 ### Demo extension
 
@@ -206,6 +213,9 @@ pnpm build:ext    # builds dist-ext/; load it from about:debugging
 
 - foxgate decides. It does not enforce. Your code must call `check` or
   `redeem` before each action and obey the answer.
+- The planner still writes the domain and the args. Your executor must run the
+  tool on that domain with those args, and your `amount` function must read
+  the same args that the executor charges.
 - The `gate` and `host` split works only when the planner cannot reach the
   `host` object. Run the planner in another context, for example a sandboxed
   page or another process.
