@@ -84,3 +84,34 @@ The cap is for all actions together, not for each action.
 | S4 | The amount is not a whole number of minor units (`12.5`, `-1`, more than 2^53). | `deny` `bad-action`. | `tests/gate.test.ts` |
 | S5 | The app restarts. | A new gate on the same storage sees the amount already spent. | `tests/gate.test.ts` |
 | S6 | The host gives a spend cap that is not whole minor units, or a `pay` action has no amount. | `addGrant` throws a `FoxgateError`. The action gets `deny` `bad-action`. | `tests/gate.test.ts` |
+
+## Exact-action approvals
+
+When `check` answers `ask`, a human sees the exact canonical JSON of the
+action. `host.approve(id)` mints a token. The token holds a SHA-256 digest of
+that text, an expiry time, and a one-time nonce, signed with an HMAC-SHA256
+key that JavaScript cannot export. `gate.redeem(token, action)` allows the
+action only if every byte of it is the same.
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| A1 | The planner uses a token a second time (replay). | `deny` `token-used`. | `tests/approvals.test.ts` |
+| A2 | The planner uses a token for a different action: one changed arg, domain, tool, scope, or amount. | `deny` `action-changed`. | `tests/approvals.test.ts` |
+| A3 | The planner sends the same action with the args keys in a different order, or the domain in uppercase. | `allow`. Canonical JSON and the domain rules make them the same action. | `tests/approvals.test.ts` |
+| A4 | The token is changed (a later expiry, a different request ID, a changed signature) or is not a token at all. | `deny` `bad-token`. | `tests/approvals.test.ts` |
+| A5 | The planner signs its own token with its own key. | `deny` `bad-token`. Only the gate key can sign, and the gate never shows it. | `tests/approvals.test.ts` |
+| A6 | The token has expired, also when the clock goes back after the expiry. | `deny` `token-expired`. | `tests/approvals.test.ts` |
+| A7 | The host approves a request that does not exist, has expired, or is not waiting. | `approve` throws a `FoxgateError` with code `not-found`. | `tests/approvals.test.ts` |
+| A8 | The human rejects a request, and the planner asks again with the same action. | `deny` `rejected` until the request expires. | `tests/approvals.test.ts` |
+| A9 | After the approval, the host revokes the grant, or other actions use up the spend cap. | `redeem` checks the grant again: `deny` `no-grant` or `spend-cap`. An approval never skips the grant rules. | `tests/approvals.test.ts` |
+| A10 | The planner redeems one token twice at the same time. | Exactly one `allow`. | `tests/approvals.test.ts` |
+| A11 | The storage lost its data after the approval. | `deny` `bad-token`. foxgate keeps a list of valid nonces, not of used ones, so lost data cannot make a token valid. | `tests/approvals.test.ts` |
+| A12 | The app gives a key that JavaScript can export, or a key that is not HMAC. | `createFoxgate` throws a `FoxgateError` with code `bad-key`. | `tests/approvals.test.ts` |
+| A13 | The planner tries a changed action first, then the approved one. | The first try uses the token up. The second gets `deny` `token-used`. A planner that changes an approved action is not trusted again. | `tests/approvals.test.ts` |
+| A14 | The `onDecision` hook throws during `approve`. | `approve` throws. The request still waits, and no token exists. | `tests/approvals.test.ts` |
+
+## Storage adapters
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| T1 | A `browser.storage.local` style area returns `{ key: value }` from `get`, not the value. | `storageAreaStore(area)` returns the value, and `undefined` for a missing key. The demo extension E2E test runs it on the real `browser.storage.local`. | `tests/approvals.test.ts` |
