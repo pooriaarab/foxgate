@@ -5,6 +5,7 @@ import { canonicalJson } from "./canonical.js";
 import { matchesPattern, normalizeHost, parsePattern, type PublicSuffix } from "./domain.js";
 import { FoxgateError, type FoxgateErrorCode } from "./errors.js";
 import { memoryStore } from "./store.js";
+import { checkKey, newKey, readToken, signToken } from "./token.js";
 import type { Action, ApprovalRequest, Decision, DecisionEvent, DenyReason, Grant, GrantInput, Money, Store } from "./types.js";
 
 export interface FoxgateOptions {
@@ -20,6 +21,10 @@ export interface FoxgateOptions {
   requestTtlMs?: number;
   /** The most requests that can wait at one time. Default: 20. */
   maxPending?: number;
+  /** How long an approval token is valid. Default: 2 minutes. */
+  tokenTtlMs?: number;
+  /** Signs approval tokens. A non-exportable HMAC SHA-256 key. Default: a new key in memory. */
+  key?: CryptoKey;
 }
 
 /** The planner side. Give only this object to the AI agent. */
@@ -34,6 +39,10 @@ export interface Host {
   revokeGrant(id: string): Promise<boolean>;
   grants(): Promise<Grant[]>;
   pending(): Promise<ApprovalRequest[]>;
+  /** A human said yes. Returns the token for this exact action. */
+  approve(requestId: string): Promise<string>;
+  /** A human said no. The same action gets "rejected" until the request expires. */
+  reject(requestId: string): Promise<void>;
 }
 
 interface State {
@@ -143,6 +152,10 @@ export function createFoxgate(options: FoxgateOptions = {}): { gate: Gate; host:
   const clock = options.now ?? Date.now;
   const requestTtl = options.requestTtlMs ?? 10 * 60_000;
   const maxPending = options.maxPending ?? 20;
+  const tokenTtl = options.tokenTtlMs ?? 2 * 60_000;
+  const givenKey = options.key && checkKey(options.key);
+  let keyPromise: Promise<CryptoKey> | undefined;
+  const key = () => (keyPromise ??= givenKey ? Promise.resolve(givenKey) : newKey());
   let tail: Promise<unknown> = Promise.resolve();
   const locked = <T>(fn: () => Promise<T>): Promise<T> => {
     const run = tail.then(fn);
@@ -155,6 +168,14 @@ export function createFoxgate(options: FoxgateOptions = {}): { gate: Gate; host:
     if (raw === undefined || raw === null) return { time: 0, grants: [], requests: [] };
     if (!isPlain(raw) || typeof raw.time !== "number" || !Array.isArray(raw.grants) || !Array.isArray(raw.requests)) throw new FoxgateError("bad-state", "The stored foxgate state has a wrong shape.");
     return raw as unknown as State;
+  }
+
+  async function notify(event: DecisionEvent) {
+    try {
+      await options.onDecision?.(event);
+    } catch (error) {
+      throw new FoxgateError("hook-failed", `The onDecision hook failed: ${messageOf(error)}`);
+    }
   }
 
   // Load, decide, tell the hook, then save. A failed hook or store saves nothing.
@@ -171,9 +192,9 @@ export function createFoxgate(options: FoxgateOptions = {}): { gate: Gate; host:
       state.time = now;
       const out = await work(state, now);
       try {
-        await options.onDecision?.({ kind, at: now, ...(out.action && { action: out.action }), ...(out.requestId && { requestId: out.requestId }), decision: out.decision });
+        await notify({ kind, at: now, ...(out.action && { action: out.action }), ...(out.requestId && { requestId: out.requestId }), decision: out.decision });
       } catch (error) {
-        return deny("hook-failed", `The onDecision hook failed: ${messageOf(error)}`);
+        return deny("hook-failed", messageOf(error));
       }
       try {
         await store.set(KEY, state);
@@ -205,10 +226,10 @@ export function createFoxgate(options: FoxgateOptions = {}): { gate: Gate; host:
       }
       const digest = await sha256(text);
       state.requests = state.requests.filter((r) => r.expiresAt > now);
-      const pending = state.requests.filter((r) => r.status === "pending");
-      let request = pending.find((r) => r.grantId === grant.id && r.digest === digest);
+      let request = state.requests.find((r) => r.grantId === grant.id && r.digest === digest && r.status !== "used");
+      if (request?.status === "rejected") return { action, requestId: request.id, decision: deny("rejected", "A human rejected this action.") };
       if (!request) {
-        if (pending.length >= maxPending) return { action, decision: deny("too-many-requests", `${maxPending} requests already wait for a human.`) };
+        if (state.requests.filter((r) => r.status === "pending").length >= maxPending) return { action, decision: deny("too-many-requests", `${maxPending} requests already wait for a human.`) };
         request = { id: randomId(), grantId: grant.id, action, text, digest, createdAt: now, expiresAt: now + requestTtl, status: "pending" };
         state.requests.push(request);
       }
@@ -216,6 +237,46 @@ export function createFoxgate(options: FoxgateOptions = {}): { gate: Gate; host:
     }
     return { action, decision: blocked };
   }
+
+  async function redeemWork(state: State, now: number, token: string, input: unknown): Promise<Outcome> {
+    const payload = await readToken(await key(), token);
+    if (!payload) return { decision: deny("bad-token", "The token is not valid.") };
+    const requestId = payload.rid;
+    if (now >= payload.exp) return { requestId, decision: deny("token-expired", "The token has expired.") };
+    const request = state.requests.find((r) => r.id === requestId && r.nonce === payload.nonce && r.digest === payload.dig);
+    if (request?.status === "used") return { requestId, decision: deny("token-used", "The token was already used.") };
+    if (request?.status !== "approved") return { requestId, decision: deny("bad-token", "No approved request matches the token.") };
+    // Any try uses the token up, also a try with a changed action (A13).
+    request.status = "used";
+    let parsed: { action: Action; text: string };
+    try {
+      parsed = parseAction(input);
+    } catch (error) {
+      return { requestId, decision: deny("bad-action", messageOf(error)) };
+    }
+    const { action, text } = parsed;
+    if ((await sha256(text)) !== payload.dig) return { action, requestId, decision: deny("action-changed", "This is not the action that the human approved.") };
+    const grant = state.grants.find((g) => g.id === request.grantId);
+    if (!grant) return { action, requestId, decision: deny("no-grant", `Grant ${request.grantId} no longer exists.`) };
+    const why = blockedBy(grant, action, now);
+    if (why) return { action, requestId, decision: why };
+    use(grant, action);
+    return { action, requestId, decision: { decision: "allow", grantId: grant.id } };
+  }
+
+  // Approve or reject one waiting request. The hook runs before the save (A14).
+  const answer = <T>(id: string, work: (request: ApprovalRequest, now: number) => Promise<{ event: DecisionEvent; result: T }>) =>
+    locked(async () => {
+      const state = await load();
+      const now = Math.max(clock(), state.time);
+      const request = state.requests.find((r) => r.id === id && r.status === "pending" && r.expiresAt > now);
+      if (!request) throw new FoxgateError("not-found", `No waiting request has the ID ${JSON.stringify(id)}.`);
+      const { event, result } = await work(request, now);
+      await notify(event);
+      state.time = now;
+      await store.set(KEY, state);
+      return result;
+    });
 
   const host: Host = {
     addGrant: (input) =>
@@ -231,7 +292,7 @@ export function createFoxgate(options: FoxgateOptions = {}): { gate: Gate; host:
         const state = await load();
         const before = state.grants.length;
         state.grants = state.grants.filter((g) => g.id !== id);
-        state.requests = state.requests.filter((r) => r.grantId !== id);
+        state.requests = state.requests.filter((r) => r.grantId !== id || r.status !== "pending");
         await store.set(KEY, state);
         return state.grants.length < before;
       }),
@@ -242,12 +303,25 @@ export function createFoxgate(options: FoxgateOptions = {}): { gate: Gate; host:
         const now = Math.max(clock(), state.time);
         return state.requests.filter((r) => r.status === "pending" && r.expiresAt > now);
       }),
+    approve: (id) =>
+      answer(id, async (request, now) => {
+        const nonce = randomId();
+        const exp = now + tokenTtl;
+        const result = await signToken(await key(), { v: 1, rid: request.id, nonce, exp, dig: request.digest });
+        const event: DecisionEvent = { kind: "approve", at: now, action: request.action, requestId: request.id, decision: { decision: "allow", grantId: request.grantId } };
+        Object.assign(request, { status: "approved", nonce, expiresAt: exp });
+        return { event, result };
+      }),
+    reject: (id) =>
+      answer(id, async (request, now) => {
+        request.status = "rejected";
+        return { event: { kind: "reject", at: now, action: request.action, requestId: request.id, decision: deny("rejected", "A human rejected this action.") }, result: undefined };
+      }),
   };
 
   const gate: Gate = {
     check: (action) => decide("check", (state, now) => checkWork(state, now, action)),
-    // Approvals come with the host approve() step. Until then no token is valid.
-    redeem: () => decide("redeem", async () => ({ decision: deny("bad-token", "This gate has no approved requests.") })),
+    redeem: (token, action) => decide("redeem", (state, now) => redeemWork(state, now, token, action)),
   };
   return { gate: Object.freeze(gate), host: Object.freeze(host) };
 }
