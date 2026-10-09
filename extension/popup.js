@@ -28,14 +28,23 @@ async function render() {
   else delete document.body.dataset.token;
 }
 
+// Show an answer and count it in data-runs, so a repeated answer is still
+// a new answer (E8).
+function answer(output, text) {
+  output.textContent = text;
+  output.dataset.runs = String(Number(output.dataset.runs ?? 0) + 1);
+}
+
 $("ask").addEventListener("click", async () => {
-  $("asked").textContent = await send("agent:ask");
+  const text = await send("agent:ask");
   await render();
+  answer($("asked"), text);
 });
 for (const [id, changed] of [["redeem", false], ["tamper", true]]) {
   $(id).addEventListener("click", async () => {
-    $("result").textContent = await send("agent:redeem", { changed });
+    const text = await send("agent:redeem", { changed });
     await render();
+    answer($("result"), text);
   });
 }
 render().then(() => (document.body.dataset.ready = "1"));
