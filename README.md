@@ -50,7 +50,7 @@ console.log((await gate.redeem(token2, action)).reason); // "token-used"
 |---|---|---|
 | A browser agent author (for example foxmate) | An agent that fills and submits forms in the user's own browser | Reading and filling run on grants. Submitting and paying stop for a human, who sees the exact JSON. |
 | An MCP server author | Tools that send email, open pull requests, or delete files | The server calls `gate.check` before each tool call and returns the request to the client for approval. |
-| A team that runs CI bots | A bot that buys test devices or cloud credits | A `pay` grant with `approval: "never"`, a `spendCap`, and `maxUses`. The bot cannot spend past the cap, also when two jobs run at the same time. |
+| A team that runs CI bots | A bot that buys test devices or cloud credits | A `pay` grant with `approval: "never"`, a `spendCap`, and `maxUses`. All jobs call one gate, for example in one small service. Then the bot cannot spend past the cap, also when two jobs ask at the same time. |
 | A QA engineer | Browser automation that runs against staging sites | Exact-host grants keep the scripts on the staging hosts. `evil-staging.com` does not match `staging.com`. |
 | A developer on any agent framework | A LangChain, Vercel AI SDK, or custom tool loop | Wrap each tool in `check`, and in `redeem` when the answer is `ask`. Deny is the default, so a new tool is blocked until the host registers it with its scope and a grant covers it. |
 | An audit log author (for example foxtrail) | A tamper-evident record of agent decisions | The `onDecision` hook gets every decision before it takes effect. If the hook throws, the answer is `deny`. |
@@ -109,10 +109,10 @@ sequenceDiagram
 ```
 
 All state changes in one gate run one at a time, so two actions cannot pass a
-cap together. foxgate stores the latest time it saw, so a clock that goes back
-cannot make an expired grant or token valid again. It stores valid nonces, not
-used ones, so lost storage makes tokens invalid. Every failure mode has a test:
-see [docs/failure-modes.md](docs/failure-modes.md).
+cap together. This holds for one gate only, so use one gate for each store.
+foxgate stores the latest time it saw, so a clock that goes back cannot make
+an expired grant or token valid again. It stores valid nonces, not used ones,
+so lost storage makes tokens invalid. Every failure mode has a test: see [docs/failure-modes.md](docs/failure-modes.md).
 
 ## API
 
