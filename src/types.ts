@@ -81,7 +81,8 @@ export type DenyReason =
   | "action-changed"
   | "rejected"
   | "hook-failed"
-  | "storage-error";
+  | "storage-error"
+  | "clock-error";
 
 export type Decision =
   | { decision: "allow"; grantId: string }

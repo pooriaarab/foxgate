@@ -129,7 +129,7 @@ Returns `{ gate, host }`. Both objects are frozen.
 |---|---|---|
 | `tools` | required | `{ name: scope }` or `{ name: { scope, amount } }`. Every tool the planner may use. `amount(args)` returns `{ value, currency }`, and a `pay` tool needs it. |
 | `store` | `memoryStore()` | Where grants, requests, and spend live. |
-| `now` | `Date.now` | The clock, in ms since 1970. |
+| `now` | `Date.now` | The clock, in ms since 1970. If it returns a value that is not a finite number, `check` and `redeem` give `deny` `clock-error`. |
 | `publicSuffix` | none | `{ getDomain(host) }`. Needed for `*.` patterns. In Firefox 153+, pass `browser.publicSuffix`. |
 | `onDecision` | none | `(event) => void \| Promise<void>`. Runs before each decision takes effect. If it throws, the answer is `deny` `hook-failed`. |
 | `key` | a new key | A non-exportable HMAC SHA-256 `CryptoKey` with the usages `sign` and `verify`. |
@@ -171,7 +171,7 @@ subdomains only. `approval` is `"always"` or `"never"`. The default is
 
 `bad-action`, `unknown-tool`, `wrong-scope`, `wrong-amount`, `no-grant`, `expired`, `used-up`, `spend-cap`, `currency`,
 `too-many-requests`, `bad-token`, `token-expired`, `token-used`,
-`action-changed`, `rejected`, `hook-failed`, `storage-error`.
+`action-changed`, `rejected`, `hook-failed`, `storage-error`, `clock-error`.
 
 ### Other exports
 

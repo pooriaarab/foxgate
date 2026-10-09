@@ -89,6 +89,17 @@ the registry, not the planner, for both.
 | P7 | The amount function throws or returns an amount that is not whole minor units. | `deny` `bad-action`. | `tests/tools.test.ts` |
 | P8 | The tool name is a name that every object has, such as `toString` or `__proto__`. | `deny` `unknown-tool`. Only names that the host wrote count. | `tests/tools.test.ts` |
 
+## The clock
+
+foxgate compares times to decide expiry. A clock value that is not a number
+makes every comparison false, so nothing would ever expire.
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| K1 | The `now` option returns `NaN`, `Infinity`, or something that is not a number. | `check` and `redeem` give `deny` `clock-error`. `addGrant`, `approve`, `reject`, and `pending` throw a `FoxgateError` with code `bad-state`. | `tests/clock.test.ts` |
+| K2 | The stored time is not a finite number. | `deny` `storage-error`. Never use that time. | `tests/clock.test.ts` |
+| K3 | The clock is bad for one call, then good again. | The bad call saves nothing. Grants that expired before stay expired. | `tests/clock.test.ts` |
+
 ## Spend caps
 
 A grant can have a spend cap: an amount in minor units (cents) and a currency.
