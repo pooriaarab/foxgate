@@ -190,3 +190,8 @@ row is a way that the listed build or the submission can go wrong.
 | AR9 | The AMO version lookup fails (401, 500, network) | `version-status` stops; it never guesses `absent` |
 | AR10 | The release background answers `host:grant`, a message that only the e2e test sends; any add-on page could add a read grant with no user step | Only `build-ext.mjs --e2e` (`__E2E__` true) adds the handler; the release build drops it |
 | AR11 | `pnpm e2e` runs on the release build, which has no `host:grant`, so E4 cannot run | The `e2e` script builds with `--e2e` |
+
+| ID | Failure | Wanted result |
+|---|---|---|
+| AR-U1 | A `local_hosts` reason for a host permission also clears a test content script on the same pattern | Each reason names its use (`host_permission`, `content_script`, `web_accessible_resource`, `externally_connectable`); a use without its own reason stops the check |
+| AR-U2 | `local_hosts` keeps a reason for a use that the release build does not have | The check stops and names the pattern and the use |
