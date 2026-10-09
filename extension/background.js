@@ -60,15 +60,19 @@ const handlers = {
   async "host:state"() {
     return { pending: await host.pending(), log, tokenFor: agent.tokenFor };
   },
-  async "host:grant"({ domains }) {
+};
+// The e2e test adds read grants to check the real public suffix list (E4).
+// Only the e2e build (build-ext.mjs --e2e) has this handler.
+if (__E2E__) {
+  handlers["host:grant"] = async ({ domains }) => {
     try {
       await host.addGrant({ scope: "read", domains });
       return { error: null };
     } catch (error) {
       return { error: error.code ?? String(error) };
     }
-  },
-};
+  };
+}
 
 browser.runtime.onMessage.addListener((message) => {
   const handler = handlers[message?.type];

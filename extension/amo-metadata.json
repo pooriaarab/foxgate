@@ -1,0 +1,18 @@
+{
+  "default_locale": "en-US",
+  "slug": "foxgate",
+  "name": { "en-US": "foxgate — try exact-action approvals" },
+  "summary": {
+    "en-US": "A hands-on walkthrough of foxgate, an open-source approval layer for AI agents. A simulated agent asks to send a checkout form. You approve or deny the exact action, and a changed action is refused."
+  },
+  "description": {
+    "en-US": "foxgate is an open-source library that puts policy, exact-action approvals and spend caps between an AI agent and the actions it takes. This add-on lets you try the approval part in a popup, with no agent and no AI model.\n\n**Who it is for:** developers who build AI agents and want to see how an approval for one exact action works, and people who want to judge the idea before they use it.\n\n**What it does**\n\n- A simulated agent asks to send a checkout form on checkout.example.com, with an email and a plan.\n- The popup shows the waiting request. You click Approve or Deny.\n- After an approval, \"Run the approved action\" runs. \"Run a changed action\" asks to run the same form with another plan, and foxgate refuses it, because the approval holds for the exact action only.\n- A list shows each decision.\n\nThe agent and the form are simulated. The add-on does not visit or send any form on a real website.\n\n**What leaves your computer**\n\nNothing. The add-on makes no network requests. It has no server and sends nothing to its authors.\n\n**Permissions**\n\n- Storage: the grants and the waiting requests.\n- Public suffix list: match a domain such as checkout.example.com to its site, as a real agent host would.\n\nThe source code is MIT licensed."
+  },
+  "categories": { "firefox": ["web-development"] },
+  "homepage": { "en-US": "https://github.com/pooriaarab/foxgate" },
+  "support_url": { "en-US": "https://github.com/pooriaarab/foxgate/issues" },
+  "version": {
+    "license": "MIT",
+    "approval_notes": "The uploaded source.zip is the git tree of this release. To build: install Node 24 and pnpm 11 (corepack enable), run `pnpm install --frozen-lockfile`, then `pnpm build:ext`. The output is dist-ext/. esbuild bundles extension/*.js with src/*.ts; the other files are copied unmodified. To try it: click the toolbar button, click \"Ask to submit the form\", click Approve on the waiting request, then \"Run the approved action\" (allowed) and \"Run a changed action\" (refused). The agent is simulated; no network requests. No account is needed."
+  }
+}

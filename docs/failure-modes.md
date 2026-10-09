@@ -171,3 +171,27 @@ popup. The checks below need a real browser, so the E2E test covers them.
 | E6 | The human clicks Deny. | The request leaves the list, and the same action gets `deny: rejected`. | `e2e/run.mjs` |
 | E7 | The agent asks again while it still holds a used token. The popup then says it holds a token for the new request, and a run right after the approval uses the old token. | When the agent asks, it drops its old token. The popup shows a token only for the request that the token was approved for. | `e2e/run.mjs` |
 | E8 | Two runs in a row give the same answer, so a test that waits for the text to change waits forever. | Each output counts its answers in `data-runs`. The E2E test waits for the count, not for new text. | `e2e/run.mjs` |
+
+## AMO release build and listed submission (`scripts/amo-listing.mjs`)
+
+`pnpm check:amo` reads `dist-ext/`, which is what `release.yml` signs. Each
+row is a way that the listed build or the submission can go wrong.
+
+| ID | Failure | Wanted result |
+|---|---|---|
+| AR1 | `dist-ext/` is missing, so the check reads nothing | The check stops and says to run `pnpm build:ext` |
+| AR2 | A content script in the release manifest matches `127.0.0.1`, `localhost` or `*.localhost` (a test bridge) | The check stops and names the pattern |
+| AR3 | A host permission for a local host exists only for tests | The check stops, unless `local_hosts` in the listing gives a reason for that exact pattern |
+| AR4 | A file named for tests (`e2e`, `fixture`, `test`, `spec`) is in `dist-ext/` | The check stops and names the file |
+| AR5 | `dist-ext/` came from `build-ext.mjs --e2e` | AR2 or AR4 stops it |
+| AR6 | The `local_hosts` reasons go to AMO as an unknown field | `metadata` leaves them out, as it does the privacy policy |
+| AR7 | A re-run submits a version that AMO already has as listed | `version-status` says `listed`, and the step skips web-ext sign and finishes the release |
+| AR8 | AMO has the version as unlisted | `version-status` stops and says to bump the version |
+| AR9 | The AMO version lookup fails (401, 500, network) | `version-status` stops; it never guesses `absent` |
+| AR10 | The release background answers `host:grant`, a message that only the e2e test sends; any add-on page could add a read grant with no user step | Only `build-ext.mjs --e2e` (`__E2E__` true) adds the handler; the release build drops it |
+| AR11 | `pnpm e2e` runs on the release build, which has no `host:grant`, so E4 cannot run | The `e2e` script builds with `--e2e` |
+
+| ID | Failure | Wanted result |
+|---|---|---|
+| AR-U1 | A `local_hosts` reason for a host permission also clears a test content script on the same pattern | Each reason names its use (`host_permission`, `content_script`, `web_accessible_resource`, `externally_connectable`); a use without its own reason stops the check |
+| AR-U2 | `local_hosts` keeps a reason for a use that the release build does not have | The check stops and names the pattern and the use |
