@@ -1,0 +1,107 @@
+// The shapes foxgate works with. All stored values are plain JSON, so any
+// key-value storage can hold them.
+
+/** What an action does. A grant for one scope allows only that scope. */
+export type Scope = "read" | "fill" | "submit" | "pay";
+
+/** Money in minor units (cents for USD) and an ISO 4217 currency code. */
+export interface Money {
+  value: number;
+  currency: string;
+}
+
+/**
+ * How the host registers a tool: its scope, and for a tool that costs money,
+ * a function that reads the amount from the args. The planner cannot change it.
+ */
+export type ToolSpec = Scope | { scope: Scope; amount?: (args: Record<string, unknown>) => Money };
+
+/** One thing an agent wants to do. Approval tokens bind to all of it. */
+export interface Action {
+  tool: string;
+  args: Record<string, unknown>;
+  domain: string;
+  scope: Scope;
+  amount?: Money;
+}
+
+/** What the host allows. Only the host can add a grant. */
+export interface GrantInput {
+  scope: Scope;
+  /** Exact hosts (`shop.example.com`) or subdomain patterns (`*.example.com`). */
+  domains: string[];
+  /** Tool names. Leave it out to allow every tool. */
+  tools?: string[];
+  /** The most this grant can spend, for all actions together. */
+  spendCap?: Money;
+  /** Time in ms since 1970. The grant stops at this time. */
+  expiresAt?: number;
+  maxUses?: number;
+  /** "always" makes check() answer "ask". Default: "always" for submit and pay, else "never". */
+  approval?: "always" | "never";
+}
+
+export interface Grant extends GrantInput {
+  id: string;
+  createdAt: number;
+  approval: "always" | "never";
+  uses: number;
+  /** Minor units spent so far against spendCap. */
+  spent: number;
+}
+
+/** An action that waits for a human. `text` is the exact canonical JSON to show. */
+export interface ApprovalRequest {
+  id: string;
+  grantId: string;
+  action: Action;
+  text: string;
+  digest: string;
+  createdAt: number;
+  expiresAt: number;
+  status: "pending" | "approved" | "used" | "rejected";
+  /** Set when approved. It must match the token nonce. */
+  nonce?: string;
+}
+
+export type DenyReason =
+  | "bad-action"
+  | "unknown-tool"
+  | "wrong-scope"
+  | "wrong-amount"
+  | "no-grant"
+  | "expired"
+  | "used-up"
+  | "spend-cap"
+  | "currency"
+  | "too-many-requests"
+  | "bad-token"
+  | "token-expired"
+  | "token-used"
+  | "action-changed"
+  | "rejected"
+  | "hook-failed"
+  | "storage-error"
+  | "clock-error";
+
+export type Decision =
+  /** `action` is the normalized action that foxgate judged. Run this object, not your own copy. */
+  | { decision: "allow"; grantId: string; action: Action }
+  | { decision: "ask"; grantId: string; requestId: string; expiresAt: number }
+  | { decision: "deny"; reason: DenyReason; message: string };
+
+/** What onDecision receives, one time for each decision. */
+export interface DecisionEvent {
+  kind: "check" | "redeem" | "approve" | "reject";
+  at: number;
+  /** The normalized action, when it was valid. */
+  action?: Action;
+  requestId?: string;
+  decision: Decision;
+}
+
+/** Key-value storage for foxgate state. Values are plain JSON. */
+export interface Store {
+  get(key: string): Promise<unknown>;
+  set(key: string, value: unknown): Promise<void>;
+}
