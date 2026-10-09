@@ -1,4 +1,4 @@
-// Failure modes A1-A14 and T1 in docs/failure-modes.md.
+// Failure modes A1-A14, R1-R2, and T1 in docs/failure-modes.md.
 import { describe, expect, it } from "vitest";
 import { FoxgateError, createFoxgate, memoryStore, storageAreaStore, type Action, type FoxgateOptions } from "../src/index.js";
 
@@ -162,6 +162,33 @@ describe("exact-action approvals", () => {
     expect((await fox.host.pending()).map((r) => r.id)).toEqual([asked.requestId]);
     fail = false;
     expect(reason(await fox.gate.redeem(await fox.host.approve(asked.requestId), action))).toBe("allow");
+  });
+});
+
+describe("what the executor runs", () => {
+  it("R1: allow holds the normalized action", async () => {
+    const fox = await setup();
+    const token = await approved(fox);
+    const sent = { tool: "pay", scope: "pay", domain: "SHOP.Example.com.", args: { total: 600, items: [1, 2], order: "A-1" } } as Action;
+    const done = await fox.gate.redeem(token, sent);
+    if (done.decision !== "allow") throw new Error(`expected allow, got ${JSON.stringify(done)}`);
+    expect(done.action).toEqual({ ...action, domain: "shop.example.com" });
+    const read = createFoxgate({ tools: { look: "read" } });
+    await read.host.addGrant({ scope: "read", domains: ["bücher.de"] });
+    const looked = await read.gate.check({ tool: "look", args: { q: 1 }, domain: "BÜCHER.de", scope: "read" });
+    expect(looked).toMatchObject({ decision: "allow", action: { domain: "xn--bcher-kva.de", args: { q: 1 } } });
+  });
+
+  it("R2: changing the returned action changes nothing", async () => {
+    const fox = await setup();
+    const token = await approved(fox);
+    const done = await fox.gate.redeem(token, action);
+    if (done.decision !== "allow") throw new Error("expected allow");
+    done.action.args.total = 1;
+    (done.action.amount as { value: number }).value = 1;
+    expect((await fox.host.grants())[0]?.spent).toBe(600);
+    expect(reason(await fox.gate.check({ ...action, args: { ...action.args, order: "A-2" } }))).toBe("ask");
+    expect((await fox.host.pending())[0]?.action.amount?.value).toBe(600);
   });
 });
 

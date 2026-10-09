@@ -145,7 +145,7 @@ describe("grants and the policy check", () => {
     await host.addGrant({ scope: "fill", domains: ["shop.example.com"], maxUses: 1 });
     const second = await host.addGrant({ scope: "fill", domains: ["*.example.com"] });
     await gate.check(fill);
-    expect(await gate.check(fill)).toEqual({ decision: "allow", grantId: second.id });
+    expect(await gate.check(fill)).toMatchObject({ decision: "allow", grantId: second.id });
   });
 });
 
