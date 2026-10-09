@@ -187,8 +187,9 @@ describe("what the executor runs", () => {
     done.action.args.total = 1;
     (done.action.amount as { value: number }).value = 1;
     expect((await fox.host.grants())[0]?.spent).toBe(600);
-    expect(reason(await fox.gate.check({ ...action, args: { ...action.args, order: "A-2" } }))).toBe("ask");
-    expect((await fox.host.pending())[0]?.action.amount?.value).toBe(600);
+    // 600 is spent of 1000, so 400 more still fits and 401 does not.
+    expect(reason(await fox.gate.check({ ...action, args: { ...action.args, total: 401 }, amount: undefined }))).toBe("spend-cap");
+    expect(reason(await fox.gate.check({ ...action, args: { ...action.args, total: 400 }, amount: undefined }))).toBe("ask");
   });
 });
 

@@ -85,7 +85,8 @@ export type DenyReason =
   | "clock-error";
 
 export type Decision =
-  | { decision: "allow"; grantId: string }
+  /** `action` is the normalized action that foxgate judged. Run this object, not your own copy. */
+  | { decision: "allow"; grantId: string; action: Action }
   | { decision: "ask"; grantId: string; requestId: string; expiresAt: number }
   | { decision: "deny"; reason: DenyReason; message: string };
 

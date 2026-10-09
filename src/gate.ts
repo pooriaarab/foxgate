@@ -294,7 +294,7 @@ export function createFoxgate(options: FoxgateOptions): { gate: Gate; host: Host
       }
       if (grant.approval === "never") {
         use(grant, action);
-        return { action, decision: { decision: "allow", grantId: grant.id } };
+        return { action, decision: { decision: "allow", grantId: grant.id, action } };
       }
       const digest = await sha256(text);
       state.requests = state.requests.filter((r) => r.expiresAt > now);
@@ -333,7 +333,7 @@ export function createFoxgate(options: FoxgateOptions): { gate: Gate; host: Host
     const why = blockedBy(grant, action, now);
     if (why) return { action, requestId, decision: why };
     use(grant, action);
-    return { action, requestId, decision: { decision: "allow", grantId: grant.id } };
+    return { action, requestId, decision: { decision: "allow", grantId: grant.id, action } };
   }
 
   // Approve or reject one waiting request. The hook runs before the save (A14).
@@ -380,7 +380,7 @@ export function createFoxgate(options: FoxgateOptions): { gate: Gate; host: Host
         const nonce = randomId();
         const exp = now + tokenTtl;
         const result = await signToken(await key(), { v: 1, rid: request.id, nonce, exp, dig: request.digest });
-        const event: DecisionEvent = { kind: "approve", at: now, action: request.action, requestId: request.id, decision: { decision: "allow", grantId: request.grantId } };
+        const event: DecisionEvent = { kind: "approve", at: now, action: request.action, requestId: request.id, decision: { decision: "allow", grantId: request.grantId, action: structuredClone(request.action) } };
         Object.assign(request, { status: "approved", nonce, expiresAt: exp });
         return { event, result };
       }),
