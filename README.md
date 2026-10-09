@@ -188,9 +188,12 @@ subdomains only. `approval` is `"always"` or `"never"`. The default is
 | `parsePattern(pattern, publicSuffix?)`, `matchesPattern(host, pattern)` | The domain rules that grants use. |
 | `FoxgateError` | Has a `code`: `not-json`, `too-large`, `bad-domain`, `bad-grant`, `bad-action`, `not-found`, `bad-state`, `bad-key`, `hook-failed`, or `bad-tools`. |
 
-### Demo extension
+### Extension
 
-`extension/` is a demo for Firefox 153+. A simulated agent asks to submit a
+Install from AMO: [addons.mozilla.org/firefox/addon/foxgate](https://addons.mozilla.org/firefox/addon/foxgate/)
+(pending AMO review; the link works after approval).
+
+`extension/` is a walkthrough for Firefox 153+. A simulated agent asks to submit a
 checkout form. The popup shows the waiting request with Approve and Deny, and
 buttons that run the approved action or a changed one.
 
