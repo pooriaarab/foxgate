@@ -1,14 +1,14 @@
-// The gate: grants and the policy check. All state changes run
-// one at a time and every answer goes through the
+// The gate: grants, the policy check, and spend caps. All state changes run
+// one at a time (docs/failure-modes.md S3) and every answer goes through the
 // onDecision hook before foxgate saves it (G14).
 import { canonicalJson } from "./canonical.js";
 import { matchesPattern, normalizeHost, parsePattern, type PublicSuffix } from "./domain.js";
-import { FoxgateError } from "./errors.js";
+import { FoxgateError, type FoxgateErrorCode } from "./errors.js";
 import { memoryStore } from "./store.js";
-import type { Action, ApprovalRequest, Decision, DecisionEvent, DenyReason, Grant, GrantInput, Store } from "./types.js";
+import type { Action, ApprovalRequest, Decision, DecisionEvent, DenyReason, Grant, GrantInput, Money, Store } from "./types.js";
 
 export interface FoxgateOptions {
-  /** Where grants and requests live. Default: memoryStore(). */
+  /** Where grants, requests, and spend live. Default: memoryStore(). */
   store?: Store;
   /** The clock, in ms since 1970. Default: Date.now. */
   now?: () => number;
@@ -50,8 +50,8 @@ interface Outcome {
 
 const KEY = "foxgate";
 const SCOPES = ["read", "fill", "submit", "pay"];
-const ACTION_KEYS = new Set(["tool", "args", "domain", "scope"]);
-const GRANT_KEYS = new Set(["scope", "domains", "tools", "expiresAt", "maxUses", "approval"]);
+const ACTION_KEYS = new Set(["tool", "args", "domain", "scope", "amount"]);
+const GRANT_KEYS = new Set(["scope", "domains", "tools", "spendCap", "expiresAt", "maxUses", "approval"]);
 
 const hex = (bytes: Uint8Array) => Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 export const randomId = () => hex(crypto.getRandomValues(new Uint8Array(16)));
@@ -67,18 +67,24 @@ const isPlain = (value: unknown): value is Record<string, unknown> => {
   return proto === Object.prototype || proto === null;
 };
 
+function parseMoney(value: unknown, code: FoxgateErrorCode): Money {
+  const ok = isPlain(value) && Object.keys(value).every((k) => k === "value" || k === "currency") && Number.isSafeInteger(value.value) && (value.value as number) >= 0 && typeof value.currency === "string" && /^[A-Z]{3}$/.test(value.currency);
+  if (!ok) throw new FoxgateError(code, "An amount must be { value, currency }: whole minor units from 0, and a 3-letter uppercase currency code.");
+  return { value: value.value as number, currency: value.currency as string };
+}
+
 /** Check an action and return it normalized, with its canonical JSON text. */
 export function parseAction(input: unknown): { action: Action; text: string } {
   const fail = badAction;
   if (!isPlain(input)) throw fail("it is not an object");
   const extra = Object.keys(input).find((key) => !ACTION_KEYS.has(key));
   if (extra !== undefined) throw fail(`it has the unknown field ${JSON.stringify(extra)}`);
-  const { tool, args, domain, scope } = input;
+  const { tool, args, domain, scope, amount } = input;
   if (typeof tool !== "string" || tool === "" || tool.length > 128) throw fail("tool must be a string of 1 to 128 characters");
   if (!isPlain(args)) throw fail("args must be a JSON object");
   if (typeof scope !== "string" || !SCOPES.includes(scope)) throw fail(`scope must be one of ${SCOPES.join(", ")}`);
-  if (scope === "pay") throw fail("a pay action needs an amount");
-  const action = { tool, args, domain: normalizeHost(domain as string), scope };
+  if (scope === "pay" && amount === undefined) throw fail("a pay action needs an amount");
+  const action = { tool, args, domain: normalizeHost(domain as string), scope, ...(amount === undefined ? {} : { amount: parseMoney(amount, "bad-action") }) };
   const text = canonicalJson(action);
   return { action: JSON.parse(text) as Action, text };
 }
@@ -88,7 +94,7 @@ function parseGrant(input: unknown, now: number, publicSuffix?: PublicSuffix): G
   if (!isPlain(input)) throw fail("it is not an object");
   const extra = Object.keys(input).find((key) => !GRANT_KEYS.has(key));
   if (extra !== undefined) throw fail(`it has the unknown field ${JSON.stringify(extra)}`);
-  const { scope, domains, tools, expiresAt, maxUses, approval } = input;
+  const { scope, domains, tools, spendCap, expiresAt, maxUses, approval } = input;
   if (typeof scope !== "string" || !SCOPES.includes(scope)) throw fail(`scope must be one of ${SCOPES.join(", ")}`);
   if (!Array.isArray(domains) || domains.length === 0) throw fail("domains must be a list with at least one domain");
   if (tools !== undefined && (!Array.isArray(tools) || !tools.every((t) => typeof t === "string" && t !== ""))) throw fail("tools must be a list of names");
@@ -102,10 +108,12 @@ function parseGrant(input: unknown, now: number, publicSuffix?: PublicSuffix): G
     scope: scope as Grant["scope"],
     domains: patterns.map((p) => (p.kind === "subdomains" ? `*.${p.host}` : p.host)),
     ...(tools === undefined ? {} : { tools: tools as string[] }),
+    ...(spendCap === undefined ? {} : { spendCap: parseMoney(spendCap, "bad-grant") }),
     ...(expiresAt === undefined ? {} : { expiresAt }),
     ...(maxUses === undefined ? {} : { maxUses: maxUses as number }),
     approval: approval ?? (scope === "submit" || scope === "pay" ? "always" : "never"),
     uses: 0,
+    spent: 0,
   };
 }
 
@@ -116,7 +124,18 @@ const allows = (pattern: string, host: string) =>
 export function blockedBy(grant: Grant, action: Action, now: number): Decision | undefined {
   if (grant.expiresAt !== undefined && now >= grant.expiresAt) return deny("expired", `Grant ${grant.id} expired.`);
   if (grant.maxUses !== undefined && grant.uses >= grant.maxUses) return deny("used-up", `Grant ${grant.id} has no uses left.`);
+  const cap = grant.spendCap;
+  if (cap && action.amount) {
+    if (action.amount.currency !== cap.currency) return deny("currency", `Grant ${grant.id} spends ${cap.currency}, not ${action.amount.currency}.`);
+    if (grant.spent + action.amount.value > cap.value) return deny("spend-cap", `This takes grant ${grant.id} over its cap: ${grant.spent} + ${action.amount.value} > ${cap.value} ${cap.currency}.`);
+  }
   return undefined;
+}
+
+/** Count one use of the grant, and the amount against its cap. */
+export function use(grant: Grant, action: Action): void {
+  grant.uses += 1;
+  if (grant.spendCap && action.amount) grant.spent += action.amount.value;
 }
 
 export function createFoxgate(options: FoxgateOptions = {}): { gate: Gate; host: Host } {
@@ -181,7 +200,7 @@ export function createFoxgate(options: FoxgateOptions = {}): { gate: Gate; host:
         continue;
       }
       if (grant.approval === "never") {
-        grant.uses += 1;
+        use(grant, action);
         return { action, decision: { decision: "allow", grantId: grant.id } };
       }
       const digest = await sha256(text);

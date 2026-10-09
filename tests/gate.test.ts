@@ -1,4 +1,4 @@
-// Failure modes G1-G16 in docs/failure-modes.md.
+// Failure modes G1-G16 and S1-S6 in docs/failure-modes.md.
 import { describe, expect, it } from "vitest";
 import { FoxgateError, createFoxgate, memoryStore, type Action, type DecisionEvent, type FoxgateOptions, type Store } from "../src/index.js";
 
@@ -13,6 +13,7 @@ function setup(options: Partial<FoxgateOptions> = {}) {
 }
 
 const fill: Action = { tool: "fill", args: { field: "email", value: "a@b.c" }, domain: "shop.example.com", scope: "fill" };
+const pay = (value: number, currency = "USD"): Action => ({ tool: "pay", args: { order: 1 }, domain: "shop.example.com", scope: "pay", amount: { value, currency } });
 const reason = (d: { decision: string; reason?: string }) => (d.decision === "deny" ? d.reason : d.decision);
 
 describe("grants and the policy check", () => {
@@ -137,5 +138,57 @@ describe("grants and the policy check", () => {
     const second = await host.addGrant({ scope: "fill", domains: ["*.example.com"] });
     await gate.check(fill);
     expect(await gate.check(fill)).toEqual({ decision: "allow", grantId: second.id });
+  });
+});
+
+describe("spend caps", () => {
+  it("S1: denies, never asks, over the cap", async () => {
+    const { gate, host } = setup();
+    await host.addGrant({ scope: "pay", domains: ["shop.example.com"], spendCap: { value: 1000, currency: "USD" }, approval: "never" });
+    expect(reason(await gate.check(pay(600)))).toBe("allow");
+    expect(reason(await gate.check(pay(401)))).toBe("spend-cap");
+    expect(reason(await gate.check(pay(400)))).toBe("allow");
+    expect(reason(await gate.check(pay(1)))).toBe("spend-cap");
+    const asking = setup();
+    await asking.host.addGrant({ scope: "pay", domains: ["shop.example.com"], spendCap: { value: 1000, currency: "USD" } });
+    expect(reason(await asking.gate.check(pay(1001)))).toBe("spend-cap");
+    expect(reason(await asking.gate.check(pay(1000)))).toBe("ask");
+  });
+
+  it("S2: refuses another currency", async () => {
+    const { gate, host } = setup();
+    await host.addGrant({ scope: "pay", domains: ["shop.example.com"], spendCap: { value: 1000, currency: "USD" }, approval: "never" });
+    expect(reason(await gate.check(pay(1, "EUR")))).toBe("currency");
+  });
+
+  it("S3: two actions at the same time cannot pass the cap together", async () => {
+    const { gate, host } = setup();
+    await host.addGrant({ scope: "pay", domains: ["shop.example.com"], spendCap: { value: 1000, currency: "USD" }, approval: "never" });
+    const results = await Promise.all([gate.check(pay(600)), gate.check(pay(600)), gate.check(pay(600))]);
+    expect(results.map(reason).toSorted()).toEqual(["allow", "spend-cap", "spend-cap"]);
+  });
+
+  it("S4: refuses an amount that is not whole minor units", async () => {
+    const { gate, host } = setup();
+    await host.addGrant({ scope: "pay", domains: ["shop.example.com"], approval: "never" });
+    for (const value of [12.5, -1, 2 ** 53, Number.NaN]) expect(reason(await gate.check(pay(value)))).toBe("bad-action");
+    expect(reason(await gate.check(pay(1, "usd")))).toBe("bad-action");
+  });
+
+  it("S6: refuses a bad spend cap and a pay action with no amount", async () => {
+    const { gate, host } = setup();
+    await expect(host.addGrant({ scope: "pay", domains: ["a.com"], spendCap: { value: 1.5, currency: "USD" } })).rejects.toBeInstanceOf(FoxgateError);
+    await host.addGrant({ scope: "pay", domains: ["shop.example.com"], approval: "never" });
+    expect(reason(await gate.check({ ...pay(1), amount: undefined }))).toBe("bad-action");
+    expect(reason(await gate.check(pay(1)))).toBe("allow");
+  });
+
+  it("S5: a new gate on the same storage sees what was spent", async () => {
+    const first = setup();
+    await first.host.addGrant({ scope: "pay", domains: ["shop.example.com"], spendCap: { value: 1000, currency: "USD" }, approval: "never" });
+    await first.gate.check(pay(700));
+    const second = setup({ store: first.store });
+    expect(reason(await second.gate.check(pay(400)))).toBe("spend-cap");
+    expect((await second.host.grants())[0]?.spent).toBe(700);
   });
 });
