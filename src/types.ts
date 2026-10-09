@@ -53,7 +53,9 @@ export interface ApprovalRequest {
   digest: string;
   createdAt: number;
   expiresAt: number;
-  status: "pending";
+  status: "pending" | "approved" | "used" | "rejected";
+  /** Set when approved. It must match the token nonce. */
+  nonce?: string;
 }
 
 export type DenyReason =
@@ -65,6 +67,10 @@ export type DenyReason =
   | "currency"
   | "too-many-requests"
   | "bad-token"
+  | "token-expired"
+  | "token-used"
+  | "action-changed"
+  | "rejected"
   | "hook-failed"
   | "storage-error";
 
@@ -75,7 +81,7 @@ export type Decision =
 
 /** What onDecision receives, one time for each decision. */
 export interface DecisionEvent {
-  kind: "check" | "redeem";
+  kind: "check" | "redeem" | "approve" | "reject";
   at: number;
   /** The normalized action, when it was valid. */
   action?: Action;

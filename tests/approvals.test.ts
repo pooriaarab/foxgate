@@ -19,6 +19,7 @@ async function approved(fox: Awaited<ReturnType<typeof setup>>, a: Action = acti
   return fox.host.approve(asked.requestId);
 }
 
+const code = (p: Promise<unknown>) => p.then(() => "no error", (e: unknown) => (e instanceof FoxgateError ? e.code : String(e)));
 const b64 = (text: string) => Buffer.from(text).toString("base64url");
 
 describe("exact-action approvals", () => {
@@ -85,7 +86,6 @@ describe("exact-action approvals", () => {
 
   it("A7: approve needs a waiting request", async () => {
     const fox = await setup({ requestTtlMs: 1000 });
-    const code = (p: Promise<unknown>) => p.then(() => "no error", (e: unknown) => (e instanceof FoxgateError ? e.code : String(e)));
     expect(await code(fox.host.approve("missing"))).toBe("not-found");
     const asked = await fox.gate.check(action);
     if (asked.decision !== "ask") throw new Error("expected ask");
