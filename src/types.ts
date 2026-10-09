@@ -4,12 +4,19 @@
 /** What an action does. A grant for one scope allows only that scope. */
 export type Scope = "read" | "fill" | "submit" | "pay";
 
+/** Money in minor units (cents for USD) and an ISO 4217 currency code. */
+export interface Money {
+  value: number;
+  currency: string;
+}
+
 /** One thing an agent wants to do. Approval tokens bind to all of it. */
 export interface Action {
   tool: string;
   args: Record<string, unknown>;
   domain: string;
   scope: Scope;
+  amount?: Money;
 }
 
 /** What the host allows. Only the host can add a grant. */
@@ -19,6 +26,8 @@ export interface GrantInput {
   domains: string[];
   /** Tool names. Leave it out to allow every tool. */
   tools?: string[];
+  /** The most this grant can spend, for all actions together. */
+  spendCap?: Money;
   /** Time in ms since 1970. The grant stops at this time. */
   expiresAt?: number;
   maxUses?: number;
@@ -31,6 +40,8 @@ export interface Grant extends GrantInput {
   createdAt: number;
   approval: "always" | "never";
   uses: number;
+  /** Minor units spent so far against spendCap. */
+  spent: number;
 }
 
 /** An action that waits for a human. `text` is the exact canonical JSON to show. */
@@ -50,6 +61,8 @@ export type DenyReason =
   | "no-grant"
   | "expired"
   | "used-up"
+  | "spend-cap"
+  | "currency"
   | "too-many-requests"
   | "bad-token"
   | "hook-failed"
