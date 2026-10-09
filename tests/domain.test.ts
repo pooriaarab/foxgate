@@ -8,8 +8,9 @@ const SUFFIXES = new Set(["com", "uk", "co.uk", "de", "io", "github.io"]);
 const psl: PublicSuffix = {
   getDomain(host) {
     const labels = host.split(".");
-    for (let i = 1; i < labels.length; i += 1) {
-      if (SUFFIXES.has(labels.slice(i).join("."))) return labels.slice(i - 1).join(".");
+    // The longest suffix wins, as in the real list.
+    for (let i = 0; i < labels.length; i += 1) {
+      if (SUFFIXES.has(labels.slice(i).join("."))) return i === 0 ? null : labels.slice(i - 1).join(".");
     }
     return null;
   },
