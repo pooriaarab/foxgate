@@ -18,9 +18,14 @@ const check = (name, expected, actual) => record.checks.push({ name, expected, a
 const EXPECTED_TEXT = '{"args":{"fields":{"email":"sam@example.com","plan":"basic"},"form":"#checkout"},"domain":"checkout.example.com","scope":"submit","tool":"submit_form"}';
 
 const click = (page, selector) => page.evaluate((s) => document.querySelector(s).click(), selector);
-// Wait until an output shows a new text, and return it.
-const changed = (page, id, previous) => poll(page, ([i, p]) => { const t = document.getElementById(i).textContent; return t && t !== p ? t : null; }, [id, previous]);
-const result = (page, previous) => changed(page, "result", previous);
+// Click a button, wait until the output counts one more answer, and return
+// the answer. The count (data-runs) changes even when the same text repeats.
+async function press(page, button, output) {
+  const before = await page.evaluate((o) => Number(document.getElementById(o).dataset.runs ?? 0), output);
+  await click(page, button);
+  await poll(page, ([o, b]) => Number(document.getElementById(o).dataset.runs ?? 0) > b, [output, before]);
+  return page.evaluate((o) => document.getElementById(o).textContent, output);
+}
 // Approve, then wait until the agent holds the token for that request.
 async function approve(page, id) {
   await click(page, `#pending li[data-id="${id}"] .approve`);
@@ -31,7 +36,7 @@ const pendingIds = (page) => page.evaluate(() => [...document.querySelectorAll("
 // Ask, then wait for the request to show. Returns its ID.
 async function ask(page) {
   const before = await pendingIds(page);
-  await click(page, "#ask");
+  await press(page, "#ask", "asked");
   return poll(page, (b) => [...document.querySelectorAll("#pending li")].map((li) => li.dataset.id).find((id) => !b.includes(id)), before);
 }
 
@@ -42,24 +47,18 @@ async function flow(page, name, shoot = false) {
   check(`${name} E1: the request shows the exact action`, EXPECTED_TEXT, await page.evaluate((i) => document.querySelector(`#pending li[data-id="${i}"] pre`).textContent, id));
   await shot("approval-waiting.png");
   await approve(page, id);
-  await click(page, "#tamper");
-  let last = await result(page, "");
-  check(`${name} E2: a changed action is refused`, "deny: action-changed", last);
+  check(`${name} E2: a changed action is refused`, "deny: action-changed", await press(page, "#tamper", "result"));
   await shot("changed-action-refused.png");
-  await click(page, "#redeem");
-  check(`${name} E2: the token is used up after a changed try`, "deny: token-used", (last = await result(page, last)));
+  check(`${name} E2: the token is used up after a changed try`, "deny: token-used", await press(page, "#redeem", "result"));
   id = await ask(page);
+  check(`${name} E7: no token for a new request before the approval`, null, await page.evaluate(() => document.body.dataset.token ?? null));
   await approve(page, id);
-  await click(page, "#redeem");
-  check(`${name} E3: the approved action runs`, "allow", (last = await result(page, last)));
-  await click(page, "#redeem");
-  check(`${name} E3: the approved action runs only one time`, "deny: token-used", (last = await result(page, last)));
+  check(`${name} E3: the approved action runs`, "allow", await press(page, "#redeem", "result"));
+  check(`${name} E3: the approved action runs only one time`, "deny: token-used", await press(page, "#redeem", "result"));
   id = await ask(page);
   await click(page, `#pending li[data-id="${id}"] .reject`);
   await poll(page, (i) => !document.querySelector(`#pending li[data-id="${i}"]`), id);
-  const asked = await page.evaluate(() => document.getElementById("asked").textContent);
-  await click(page, "#ask");
-  check(`${name} E6: a rejected action is not asked again`, "deny: rejected", await changed(page, "asked", asked));
+  check(`${name} E6: a rejected action is not asked again`, "deny: rejected", await press(page, "#ask", "asked"));
 }
 
 let fox;
@@ -94,7 +93,7 @@ try {
   await fox?.close();
   await site?.close();
 }
-record.passed = !record.error && record.checks.length >= 11 && record.checks.every((c) => c.ok);
+record.passed = !record.error && record.checks.length >= 12 && record.checks.every((c) => c.ok);
 const path = writeArtifact("artifacts", "e2e", record);
 for (const c of record.checks) console.log(`${c.ok ? "ok " : "BAD"} ${c.name}: ${JSON.stringify(c.actual)}`);
 console.log(`${record.passed ? "PASS" : "FAIL"}${record.error ? `: ${record.error}` : ""} | ${path}`);

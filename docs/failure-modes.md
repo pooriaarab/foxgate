@@ -169,3 +169,5 @@ popup. The checks below need a real browser, so the E2E test covers them.
 | E4 | The real Firefox public suffix list (`browser.publicSuffix`, Firefox 153+) is missing or not used. | The background refuses a `*.co.uk` grant with `bad-domain` and takes `*.example.co.uk`. | `e2e/run.mjs` |
 | E5 | The state does not reach `browser.storage.local`, or the signing key goes there. | `storage.local` holds the grants and requests. It holds no key. | `e2e/run.mjs` |
 | E6 | The human clicks Deny. | The request leaves the list, and the same action gets `deny: rejected`. | `e2e/run.mjs` |
+| E7 | The agent asks again while it still holds a used token. The popup then says it holds a token for the new request, and a run right after the approval uses the old token. | When the agent asks, it drops its old token. The popup shows a token only for the request that the token was approved for. | `e2e/run.mjs` |
+| E8 | Two runs in a row give the same answer, so a test that waits for the text to change waits forever. | Each output counts its answers in `data-runs`. The E2E test waits for the count, not for new text. | `e2e/run.mjs` |

@@ -27,8 +27,9 @@ const DEMO_ACTION = {
 // The agent's copy. It changes the plan after the human said yes.
 const CHANGED_ACTION = { ...DEMO_ACTION, args: { ...DEMO_ACTION.args, fields: { ...DEMO_ACTION.args.fields, plan: "pro" } } };
 
-// What the simulated agent holds: its last request and the token for it.
-const agent = { requestId: undefined, token: undefined };
+// What the simulated agent holds: its last request, and a token with the
+// request it was approved for.
+const agent = { requestId: undefined, token: undefined, tokenFor: undefined };
 
 let ready;
 // The host adds the demo grant one time. The agent cannot add grants.
@@ -40,7 +41,8 @@ const show = (d) => (d.decision === "deny" ? `deny: ${d.reason}` : d.decision ==
 const handlers = {
   async "agent:ask"() {
     const decision = await gate.check(DEMO_ACTION);
-    if (decision.decision === "ask") agent.requestId = decision.requestId;
+    // A new request: drop the old token, so a run cannot use it by mistake (E7).
+    if (decision.decision === "ask" && decision.requestId !== agent.requestId) Object.assign(agent, { requestId: decision.requestId, token: undefined, tokenFor: undefined });
     return show(decision);
   },
   async "agent:redeem"({ changed }) {
@@ -49,14 +51,14 @@ const handlers = {
   async "host:approve"({ id }) {
     const token = await host.approve(id);
     // The host gives the token to the agent. The agent never sees the key.
-    if (id === agent.requestId) agent.token = token;
+    if (id === agent.requestId) Object.assign(agent, { token, tokenFor: id });
     return { tokenFor: id };
   },
   async "host:reject"({ id }) {
     await host.reject(id);
   },
   async "host:state"() {
-    return { pending: await host.pending(), log, tokenFor: agent.token ? agent.requestId : undefined };
+    return { pending: await host.pending(), log, tokenFor: agent.tokenFor };
   },
   async "host:grant"({ domains }) {
     try {
