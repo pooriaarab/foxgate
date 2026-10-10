@@ -14,7 +14,7 @@ const TOOLS: Record<string, ToolSpec> = {
 const psl = {
   getDomain: (host: string) => {
     const labels = host.split(".");
-    if (/^\d+(\.\d+){3}$/.test(host)) return null;
+    if (/^\d+(\.\d+){3}$/.test(host) || host === "co.uk") return null;
     if (host.endsWith(".co.uk")) return labels.length >= 3 ? labels.slice(-3).join(".") : null;
     return labels.length >= 2 ? labels.slice(-2).join(".") : null;
   },
@@ -56,7 +56,7 @@ describe("user rules", () => {
     const { host } = setup();
     for (const scope of ["pay", "fill"] as const) {
       for (const effect of ["allow", "ask", "deny"] as const) {
-        await expect(host.addRule({ site: "example.com", scope, effect })).rejects.toMatchObject({ code: "bad-rule" });
+        await expect(host.addRule({ site: "example.com", scope: scope as never, effect })).rejects.toMatchObject({ code: "bad-rule" });
       }
     }
   });
@@ -205,7 +205,7 @@ describe("user rules", () => {
 
   it("U17: the gate object has no rule methods", () => {
     const { gate } = setup();
-    expect(Object.keys(gate).sort()).toEqual(["check", "redeem"]);
+    expect(Object.keys(gate).toSorted()).toEqual(["check", "redeem"]);
     expect(Object.isFrozen(gate)).toBe(true);
   });
 });

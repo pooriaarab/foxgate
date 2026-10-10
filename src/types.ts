@@ -39,12 +39,15 @@ export interface GrantInput {
   maxUses?: number;
   /** "always" makes check() answer "ask". Default: "always" for submit and pay, else "never". */
   approval?: "always" | "never";
+  /** true lets an "allow" user rule skip this grant's approval. Default false. Leave it out after the run holds private data. */
+  rules?: boolean;
 }
 
 export interface Grant extends GrantInput {
   id: string;
   createdAt: number;
   approval: "always" | "never";
+  rules: boolean;
   uses: number;
   /** Minor units spent so far against spendCap. */
   spent: number;
@@ -62,6 +65,30 @@ export interface ApprovalRequest {
   status: "pending" | "approved" | "used" | "rejected";
   /** Set when approved. It must match the token nonce. */
   nonce?: string;
+}
+
+/** The scopes a user rule can cover. Payments and fills always follow their grants. */
+export type RuleScope = "read" | "submit";
+
+/**
+ * A standing answer from the user for one site. A rule changes only the
+ * approval step of a grant that already matches; it never adds a grant.
+ */
+export interface RuleInput {
+  /** A registrable domain (`example.com`). The rule covers it and its subdomains. */
+  site: string;
+  scope: RuleScope;
+  /** One tool name. Leave it out to cover every tool of the scope. */
+  tool?: string;
+  /** "allow" skips the human (only on grants with `rules: true`), "ask" adds one, "deny" refuses. */
+  effect: "allow" | "ask" | "deny";
+  /** Time in ms since 1970. The rule stops at this time. */
+  expiresAt?: number;
+}
+
+export interface Rule extends RuleInput {
+  id: string;
+  createdAt: number;
 }
 
 export type DenyReason =
@@ -82,13 +109,15 @@ export type DenyReason =
   | "rejected"
   | "hook-failed"
   | "storage-error"
-  | "clock-error";
+  | "clock-error"
+  | "rule";
 
+/** `ruleId` is set only when a user rule changed the answer. */
 export type Decision =
   /** `action` is the normalized action that foxgate judged. Run this object, not your own copy. */
-  | { decision: "allow"; grantId: string; action: Action }
-  | { decision: "ask"; grantId: string; requestId: string; expiresAt: number }
-  | { decision: "deny"; reason: DenyReason; message: string };
+  | { decision: "allow"; grantId: string; action: Action; ruleId?: string }
+  | { decision: "ask"; grantId: string; requestId: string; expiresAt: number; ruleId?: string }
+  | { decision: "deny"; reason: DenyReason; message: string; ruleId?: string };
 
 /** What onDecision receives, one time for each decision. */
 export interface DecisionEvent {
