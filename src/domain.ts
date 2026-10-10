@@ -58,3 +58,25 @@ export function parsePattern(pattern: string, publicSuffix?: PublicSuffix): Doma
 export function matchesPattern(host: string, pattern: DomainPattern): boolean {
   return pattern.kind === "exact" ? host === pattern.host : host.endsWith(`.${pattern.host}`);
 }
+
+/**
+ * Check that a host is a registrable domain (eTLD+1), the "site" of a user
+ * rule. Returns it normalized. Throws FoxgateError `bad-domain` for a
+ * subdomain, a public suffix, an IP address, or no public suffix list.
+ */
+export function parseSite(site: string, publicSuffix?: PublicSuffix): string {
+  const host = normalizeHost(site);
+  if (IPV4.test(host)) throw bad(site, "a site cannot be an IP address");
+  if (!publicSuffix) throw bad(site, "a site needs a public suffix list (the publicSuffix option)");
+  let domain: string | null | undefined;
+  try {
+    domain = publicSuffix.getDomain(host);
+  } catch {
+    domain = null;
+  }
+  if (domain !== host) throw bad(site, domain ? `give the registrable domain ${domain}` : "it is a public suffix or has no registrable domain");
+  return host;
+}
+
+/** True when a normalized host is the site or one of its subdomains. */
+export const onSite = (host: string, site: string) => host === site || host.endsWith(`.${site}`);
