@@ -267,6 +267,8 @@ pnpm build:ext    # builds dist-ext/; load it from about:debugging
 - Checks run one at a time inside one gate. Two gates on the same storage (for
   example one in a popup and one in the background) can race. Run one gate,
   in the background page.
+- `addRule` and `removeRule` read, change, and write the rule list with no
+  lock across gates. Two gates on one `ruleStore` can lose a rule change.
 - The signing key lives in memory. Firefox does not store a `CryptoKey` in
   `storage.local`. When the background page unloads or the app restarts, old
   tokens stop working, and the human must approve again.
