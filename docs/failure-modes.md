@@ -139,6 +139,34 @@ action only if every byte of it is the same.
 | A13 | The planner tries a changed action first, then the approved one. | The first try uses the token up. The second gets `deny` `token-used`. A planner that changes an approved action is not trusted again. | `tests/approvals.test.ts` |
 | A14 | The `onDecision` hook throws during `approve`. | `approve` throws. The request still waits, and no token exists. | `tests/approvals.test.ts` |
 
+## User rules
+
+A user rule is a standing answer that the user gives for one site: "always
+allow clicks on example.com", "always ask before it reads bank.com", "never
+let it submit on shop.com". The host adds rules with `host.addRule`. A rule
+changes only the approval step of a grant that already matches. It never
+creates an `allow` that no grant gives, and it never skips a grant limit.
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| U1 | A rule for one site acts on another host: `b.com`, `evil-a.com`, or `a.com.evil.com` for a rule on `a.com`. | The rule does not match. A rule matches its site and the subdomains of its site, by whole labels. | `tests/rules.test.ts` |
+| U2 | An `allow` rule matches, but no grant gives the scope, the tool, or the host. | `deny` `no-grant`. A rule never widens the grants of a run. | `tests/rules.test.ts` |
+| U3 | The host adds a rule for `pay` or `fill`. | `addRule` throws `bad-rule`. A payment and a fill that needs approval always ask, so no rule can change them. | `tests/rules.test.ts` |
+| U4 | The site is not a registrable domain: a subdomain (`mail.a.com`), a public suffix (`co.uk`), an IP address, a URL, a `*.` pattern, or there is no `publicSuffix` option. | `addRule` throws `bad-rule`. foxgate does not widen `mail.a.com` to `a.com` by itself; the host shows the site and passes it. An uppercase site, a trailing dot, or a Unicode name becomes the lowercase punycode host, the form that `check` uses for the action domain. | `tests/rules.test.ts` |
+| U5 | The run holds private data, and an `allow` rule matches a grant that asks. | The rule does not apply. An `allow` rule applies only to a grant that the host added with `rules: true`. The host leaves it out after private data (the exfiltration guard), so the action still asks. | `tests/rules.test.ts` |
+| U6 | An `allow` rule matches a grant that has expired, has no uses left, or is at its spend cap. | `deny` with the grant reason. The rule skips the human, not the grant limits. | `tests/rules.test.ts` |
+| U7 | Two rules match the same action with different effects. | The strictest wins: `deny`, then `ask`, then `allow`. A rule for one tool does not beat a stricter rule for the whole scope. | `tests/rules.test.ts` |
+| U8 | A rule has expired. | It does not apply, and `rules()` does not list it. A clock that goes back does not make it valid again, also after a restart with grants in memory: foxgate deletes a rule from the rule store when it sees that the rule expired, and on each write. | `tests/rules.test.ts` |
+| U9 | The user adds a `deny` rule after a request was approved. | `redeem` gives `deny` `rule`. A new `deny` rule stops a waiting approval too. | `tests/rules.test.ts` |
+| U10 | An `ask` or `deny` rule matches a grant without `rules: true`, or a grant that never asks. | The rule applies. A rule that makes the gate stricter always applies; `ask` turns an `allow` into a request for a human. | `tests/rules.test.ts` |
+| U11 | The audit log cannot tell a rule decision from a grant decision. | Each decision that a rule made holds `ruleId`: every `deny` from a rule, an `ask` where the grant would have allowed, and an `allow` where the rule skipped the human. It is also in the `onDecision` event. A decision that no rule changed has no `ruleId`. | `tests/rules.test.ts` |
+| U12 | The stored rules have a wrong shape, an unknown field, a duplicate ID, more than 500 rules, a site that is not a normalized registrable domain (`com`, `Bank.com`, `bank.com.`), a tool that the host did not register with that scope, or a `pay` or `fill` rule. | Every `check` gives `deny` `storage-error`. foxgate never applies a rule that `addRule` would refuse. | `tests/rules.test.ts` |
+| U13 | The rule store throws on read or write. | `check` gives `deny` `storage-error`. `addRule` and `removeRule` throw. | `tests/rules.test.ts` |
+| U14 | The rule input has an unknown field, a bad effect, an `expiresAt` in the past, or a tool that the host did not register with that scope. The store already holds 500 rules that have not expired. | `addRule` throws `bad-rule`. | `tests/rules.test.ts` |
+| U15 | The user removes a rule. | The next check does not use it. `removeRule` returns `false` for an unknown ID. | `tests/rules.test.ts` |
+| U16 | The app restarts. Grants are in memory, rules are in `browser.storage.local`. | A new gate on the same `ruleStore` reads the rules. Rules are plain JSON. | `tests/rules.test.ts` |
+| U17 | The planner adds or removes a rule through the `gate` object. | The `gate` object has only `check` and `redeem`. Rules are on `host`. | `tests/rules.test.ts` |
+
 ## What the executor runs
 
 The planner can send an action with an uppercase domain or keys in another
