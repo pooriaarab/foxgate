@@ -8,6 +8,7 @@ export const RULES_KEY = "foxgate-rules";
 const RULE_SCOPES: readonly string[] = ["read", "submit"] satisfies RuleScope[];
 const EFFECTS: readonly string[] = ["allow", "ask", "deny"];
 const RULE_KEYS = new Set(["site", "scope", "tool", "effect", "expiresAt"]);
+export const MAX_RULES = 500;
 
 const badRule = (why: string) => new FoxgateError("bad-rule", `The rule is not valid: ${why}.`);
 const isPlain = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
@@ -32,14 +33,22 @@ export function parseRule(input: unknown, now: number, id: string, tools: Map<st
   return { id, createdAt: now, site: host, scope: scope as RuleScope, ...(tool === undefined ? {} : { tool }), effect: effect as Rule["effect"], ...(expiresAt === undefined ? {} : { expiresAt }) };
 }
 
-const isRule = (r: unknown): r is Rule =>
-  isPlain(r) && typeof r.id === "string" && typeof r.createdAt === "number" && typeof r.site === "string" && RULE_SCOPES.includes(r.scope as string) && EFFECTS.includes(r.effect as string) && (r.tool === undefined || typeof r.tool === "string") && (r.expiresAt === undefined || typeof r.expiresAt === "number");
-
 /** Read the stored rules. A wrong shape, or a rule that addRule would refuse, throws `bad-state` (U12). */
-export function readRules(raw: unknown): Rule[] {
+export function readRules(raw: unknown, tools: Map<string, { scope: Scope }>, publicSuffix?: PublicSuffix): Rule[] {
   if (raw === undefined || raw === null) return [];
-  if (!Array.isArray(raw) || !raw.every(isRule)) throw new FoxgateError("bad-state", "The stored foxgate rules have a wrong shape.");
-  return raw;
+  try {
+    if (!Array.isArray(raw) || raw.length > MAX_RULES) throw badRule(`the list is not an array of at most ${MAX_RULES}`);
+    const rules = raw.map((r: unknown) => {
+      const { id, createdAt, ...input } = isPlain(r) ? r : {};
+      const rule = parseRule(input, -Infinity, id as string, tools, publicSuffix);
+      if (typeof id !== "string" || !Number.isFinite(createdAt) || rule.site !== input.site) throw badRule("it is not in the form that addRule saves");
+      return { ...rule, createdAt: createdAt as number };
+    });
+    if (new Set(rules.map((r) => r.id)).size < rules.length) throw badRule("two rules have the same id");
+    return rules;
+  } catch (error) {
+    throw new FoxgateError("bad-state", `The stored foxgate rules are not valid: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 export const live = (rule: Rule, now: number) => rule.expiresAt === undefined || now < rule.expiresAt;

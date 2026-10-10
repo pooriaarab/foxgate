@@ -4,7 +4,7 @@
 import { canonicalJson } from "./canonical.js";
 import { matchesPattern, normalizeHost, parsePattern, type PublicSuffix } from "./domain.js";
 import { FoxgateError, type FoxgateErrorCode } from "./errors.js";
-import { RULES_KEY, live, parseRule, readRules, ruleFor } from "./rules.js";
+import { MAX_RULES, RULES_KEY, live, parseRule, readRules, ruleFor } from "./rules.js";
 import { memoryStore } from "./store.js";
 import { checkKey, newKey, readToken, signToken } from "./token.js";
 import type { Action, ApprovalRequest, Decision, DecisionEvent, DenyReason, Grant, GrantInput, Money, Rule, RuleInput, Scope, Store, ToolSpec } from "./types.js";
@@ -221,7 +221,12 @@ export function createFoxgate(options: FoxgateOptions): { gate: Gate; host: Host
   const tools = parseTools(options?.tools);
   const store = options.store ?? memoryStore();
   const ruleStore = options.ruleStore ?? store;
-  const loadRules = async () => readRules(await ruleStore.get(RULES_KEY));
+  const loadRules = async () => readRules(await ruleStore.get(RULES_KEY), tools, options.publicSuffix);
+  // Delete expired rules once seen, so a clock that goes back after a restart cannot bring one back (U8).
+  const pruneRules = async (rules: Rule[], now: number) => {
+    const kept = rules.filter((r) => live(r, now));
+    return kept.length < rules.length ? ruleStore.set(RULES_KEY, kept).then(() => kept) : kept;
+  };
   const clock = options.now ?? Date.now;
   const requestTtl = options.requestTtlMs ?? 10 * 60_000;
   const maxPending = options.maxPending ?? 20;
@@ -285,6 +290,7 @@ export function createFoxgate(options: FoxgateOptions): { gate: Gate; host: Host
       }
       try {
         await store.set(KEY, state);
+        await pruneRules(rules, now);
       } catch (error) {
         return deny("storage-error", `Cannot save the foxgate state: ${messageOf(error)}`);
       }
@@ -301,6 +307,7 @@ export function createFoxgate(options: FoxgateOptions): { gate: Gate; host: Host
     const { action, text } = parsed;
     const rule = ruleFor(rules, action, now);
     if (rule?.effect === "deny") return { action, decision: byRule(rule) };
+    const allowRule = ruleFor(rules.filter((r) => r.effect === "allow"), action, now);
     const matching = state.grants.filter((g) => g.scope === action.scope && (!g.tools || g.tools.includes(action.tool)) && g.domains.some((p) => allows(p, action.domain)));
     let blocked: Decision = deny("no-grant", `No grant allows ${action.scope} with ${action.tool} on ${action.domain}.`);
     for (const grant of matching) {
@@ -309,9 +316,10 @@ export function createFoxgate(options: FoxgateOptions): { gate: Gate; host: Host
         if (blocked.decision === "deny" && blocked.reason === "no-grant") blocked = why;
         continue;
       }
-      // An ask rule always applies. An allow rule applies only where the host let it (U5, U10).
-      const ruleId = rule?.effect === "ask" ? rule.id : rule && grant.rules && grant.approval === "always" ? rule.id : undefined;
-      if (rule?.effect === "ask" ? false : grant.approval === "never" || ruleId) {
+      // An ask rule always applies, an allow rule only where the host let it (U5, U10). ruleId only where a rule changed the answer (U11).
+      const byAllow = grant.approval === "always" && grant.rules && allowRule !== undefined;
+      const ruleId = rule?.effect === "ask" ? (grant.approval === "never" || byAllow ? rule.id : undefined) : byAllow ? allowRule.id : undefined;
+      if (rule?.effect !== "ask" && (grant.approval === "never" || byAllow)) {
         use(grant, action);
         return { action, decision: { decision: "allow", grantId: grant.id, action, ...(ruleId && { ruleId }) } };
       }
@@ -413,15 +421,17 @@ export function createFoxgate(options: FoxgateOptions): { gate: Gate; host: Host
       }),
     addRule: (input) =>
       locked(async () => {
-        const state = await load();
-        const rules = await loadRules();
-        const rule = parseRule(input, timeOf(state), randomId(), tools, options.publicSuffix);
+        const now = timeOf(await load());
+        const rules = (await loadRules()).filter((r) => live(r, now));
+        if (rules.length >= MAX_RULES) throw new FoxgateError("bad-rule", `The rule is not valid: there are already ${MAX_RULES} rules.`);
+        const rule = parseRule(input, now, randomId(), tools, options.publicSuffix);
         await ruleStore.set(RULES_KEY, [...rules, rule]);
         return rule;
       }),
     removeRule: (id) =>
       locked(async () => {
-        const rules = await loadRules();
+        const now = timeOf(await load());
+        const rules = (await loadRules()).filter((r) => live(r, now));
         const kept = rules.filter((r) => r.id !== id);
         await ruleStore.set(RULES_KEY, kept);
         return kept.length < rules.length;
@@ -429,7 +439,7 @@ export function createFoxgate(options: FoxgateOptions): { gate: Gate; host: Host
     rules: () =>
       locked(async () => {
         const now = timeOf(await load());
-        return (await loadRules()).filter((r) => live(r, now));
+        return pruneRules(await loadRules(), now);
       }),
   };
 
