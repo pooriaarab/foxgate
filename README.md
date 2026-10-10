@@ -129,6 +129,7 @@ Returns `{ gate, host }`. Both objects are frozen.
 |---|---|---|
 | `tools` | required | `{ name: scope }` or `{ name: { scope, amount } }`. Every tool the planner may use. `amount(args)` returns `{ value, currency }`, and a `pay` tool needs it. |
 | `store` | `memoryStore()` | Where grants, requests, and spend live. |
+| `ruleStore` | `store` | Where user rules live. Give a lasting store, for example `storageAreaStore(browser.storage.local)`, to keep rules across restarts. |
 | `now` | `Date.now` | The clock, in ms since 1970. If it returns a value that is not a finite number, `check` and `redeem` give `deny` `clock-error`. |
 | `publicSuffix` | none | `{ getDomain(host) }`. Needed for `*.` patterns. In Firefox 153+, pass `browser.publicSuffix`. |
 | `onDecision` | none | `(event) => void \| Promise<void>`. Runs before each decision takes effect. If it throws, the answer is `deny` `hook-failed`. |
@@ -165,17 +166,53 @@ JSON, and the amount from the host function.
 | `pending()` | Requests that wait for a human. `text` is the canonical JSON to show. |
 | `approve(requestId)` | Returns a token for that exact action. |
 | `reject(requestId)` | The same action gets `deny` `rejected` until the request expires. |
+| `addRule(rule)` | Adds a user rule and returns it with its `id`. Throws a `FoxgateError` `bad-rule` for a bad rule. |
+| `removeRule(id)` | Removes the rule. Returns `false` for an unknown ID. |
+| `rules()` | The rules that have not expired. |
 
-A grant is `{ scope, domains, tools?, spendCap?, expiresAt?, maxUses?, approval? }`.
+A grant is `{ scope, domains, tools?, spendCap?, expiresAt?, maxUses?, approval?, rules? }`.
 A domain is an exact host (`shop.example.com`) or `*.` plus a host for its
 subdomains only. `approval` is `"always"` or `"never"`. The default is
 `"always"` for `submit` and `pay`, and `"never"` for `read` and `fill`.
+`rules: true` lets an `allow` user rule skip the approval of this grant. The
+default is `false`.
+
+### User rules
+
+A user rule is a standing answer for one site:
+`{ site, scope, tool?, effect, expiresAt? }`. `site` is a registrable domain
+(`example.com`, not `mail.example.com`), and the rule covers it and its
+subdomains. `scope` is `read` or `submit`. foxgate refuses rules for `pay` and
+`fill`. `tool` limits the rule to one tool. `effect` is one of these:
+
+- `allow`: skip the human, on a grant that has `rules: true`.
+- `ask`: ask a human, also on a grant that never asks.
+- `deny`: refuse with `deny` `rule`. This also stops a token that was
+  already approved.
+
+A rule changes only the approval step of a grant that matches. It never
+allows an action that no grant allows, and it never skips an expiry, a use
+limit, or a spend cap. When rules disagree, `deny` wins over `ask`, and `ask`
+wins over `allow`. A decision that a rule made holds `ruleId`, also in the
+`onDecision` event, so an audit log can record which rule decided.
+
+Leave `rules` out of a grant when an `allow` must not skip the human. For
+example, after an agent run reads private data, foxmate adds its grants
+without `rules`, so an `allow` rule cannot let the data out without a human.
+
+```js
+const { gate, host } = createFoxgate({ tools, publicSuffix: browser.publicSuffix, ruleStore: storageAreaStore(browser.storage.local) });
+await host.addGrant({ scope: "submit", domains: ["shop.example.com"], rules: true });
+const rule = await host.addRule({ site: "example.com", scope: "submit", tool: "click", effect: "allow" });
+const d = await gate.check({ tool: "click", args: { controlId: "buy" }, domain: "shop.example.com", scope: "submit" });
+console.log(d.decision, d.ruleId === rule.id); // "allow" true
+```
 
 ### Deny reasons
 
 `bad-action`, `unknown-tool`, `wrong-scope`, `wrong-amount`, `no-grant`, `expired`, `used-up`, `spend-cap`, `currency`,
 `too-many-requests`, `bad-token`, `token-expired`, `token-used`,
-`action-changed`, `rejected`, `hook-failed`, `storage-error`, `clock-error`.
+`action-changed`, `rejected`, `hook-failed`, `storage-error`, `clock-error`, `rule`.
 
 ### Other exports
 
@@ -186,7 +223,8 @@ subdomains only. `approval` is `"always"` or `"never"`. The default is
 | `canonicalJson(value)` | Sorted-key JSON. Throws for values that JSON cannot hold exactly. |
 | `normalizeHost(host)` | Lowercase punycode host. Throws for a URL, a port, or a path. |
 | `parsePattern(pattern, publicSuffix?)`, `matchesPattern(host, pattern)` | The domain rules that grants use. |
-| `FoxgateError` | Has a `code`: `not-json`, `too-large`, `bad-domain`, `bad-grant`, `bad-action`, `not-found`, `bad-state`, `bad-key`, `hook-failed`, or `bad-tools`. |
+| `parseSite(site, publicSuffix?)` | The normalized registrable domain, the form that a rule `site` needs. Throws `bad-domain` for anything else. |
+| `FoxgateError` | Has a `code`: `not-json`, `too-large`, `bad-domain`, `bad-grant`, `bad-action`, `not-found`, `bad-state`, `bad-key`, `hook-failed`, `bad-tools`, or `bad-rule`. |
 
 ### Extension
 
@@ -229,6 +267,8 @@ pnpm build:ext    # builds dist-ext/; load it from about:debugging
 - Checks run one at a time inside one gate. Two gates on the same storage (for
   example one in a popup and one in the background) can race. Run one gate,
   in the background page.
+- `addRule` and `removeRule` read, change, and write the rule list with no
+  lock across gates. Two gates on one `ruleStore` can lose a rule change.
 - The signing key lives in memory. Firefox does not store a `CryptoKey` in
   `storage.local`. When the background page unloads or the app restarts, old
   tokens stop working, and the human must approve again.
