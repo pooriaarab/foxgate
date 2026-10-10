@@ -62,11 +62,14 @@ describe("user rules", () => {
   });
 
   it("U4: the site must be a registrable domain", async () => {
-    const { host } = setup();
+    const { gate, host } = setup();
     for (const site of ["mail.example.com", "co.uk", "10.0.0.1", "https://example.com", "example.com/x", "*.example.com", "", "localhost"]) {
       await expect(host.addRule({ site, scope: "submit", effect: "allow" })).rejects.toMatchObject({ code: "bad-rule" });
     }
     expect((await host.addRule({ site: "Shop.CO.UK", scope: "submit", effect: "allow" })).site).toBe("shop.co.uk");
+    for (const [site, want] of [["Bank.COM.", "bank.com"], ["bücher.de", "xn--bcher-kva.de"], ["XN--BCHER-KVA.DE", "xn--bcher-kva.de"]] as const) expect((await host.addRule({ site, scope: "submit", effect: "allow" })).site).toBe(want);
+    await host.addGrant({ scope: "submit", domains: ["shop.xn--bcher-kva.de"], rules: true });
+    expect(result(await gate.check(click("SHOP.Bücher.de.")))).toBe("allow");
     const bare = createFoxgate({ tools: TOOLS });
     await expect(bare.host.addRule({ site: "example.com", scope: "submit", effect: "allow" })).rejects.toMatchObject({ code: "bad-rule" });
   });
@@ -106,7 +109,7 @@ describe("user rules", () => {
   });
 
   it("U8: an expired rule does not apply and is not listed, also when the clock goes back", async () => {
-    const { gate, host, setTime } = setup();
+    const { gate, host, setTime, ruleStore } = setup();
     await host.addGrant({ scope: "submit", domains: ["shop.example.com"], rules: true });
     await host.addRule({ site: "example.com", scope: "submit", effect: "allow", expiresAt: 1_500_000 });
     expect(result(await gate.check(click()))).toBe("allow");
@@ -115,6 +118,10 @@ describe("user rules", () => {
     expect(await host.rules()).toEqual([]);
     setTime(1_400_000);
     expect(result(await gate.check(click()))).toBe("ask");
+    const restarted = setup({ ruleStore, now: () => 1_400_000 });
+    await restarted.host.addGrant({ scope: "submit", domains: ["shop.example.com"], rules: true });
+    expect(result(await restarted.gate.check(click()))).toBe("ask");
+    expect(await restarted.host.rules()).toEqual([]);
   });
 
   it("U9: a deny rule stops an approved request", async () => {
@@ -151,12 +158,13 @@ describe("user rules", () => {
     expect(ruleOf(allowed)).toBe(rule.id);
     expect(ruleOf(events.at(-1)!.decision)).toBe(rule.id);
     expect(ruleOf(await gate.check(read()))).toBeUndefined();
+    await host.addRule({ site: "example.com", scope: "submit", tool: "browser_task", effect: "ask" });
     expect(ruleOf(await gate.check({ tool: "browser_task", args: { task: "x" }, domain: "shop.example.com", scope: "submit" }))).toBeUndefined();
   });
 
   it("U12: bad stored rules deny every check", async () => {
     const good = { id: "r1", createdAt: 1, site: "example.com", scope: "submit", effect: "allow" };
-    for (const stored of [{}, [{ ...good, scope: "pay" }], [{ ...good, scope: "fill" }], [{ ...good, effect: "yes" }], [{ ...good, site: 5 }], ["x"]]) {
+    for (const stored of [{}, [{ ...good, scope: "pay" }], [{ ...good, scope: "fill" }], [{ ...good, effect: "yes" }], [{ ...good, site: 5 }], ["x"], [{ ...good, extra: 1 }], [{ ...good, tool: "snapshot" }], [good, good], Array.from({ length: 501 }, (_, i) => ({ ...good, id: `r${i}` })), ...["com", "Bank.com", "bank.com.", "mail.example.com"].map((site) => [{ ...good, site }])]) {
       const ruleStore = memoryStore();
       await ruleStore.set("foxgate-rules", stored);
       const { gate, host } = setup({ ruleStore });
@@ -180,6 +188,11 @@ describe("user rules", () => {
     for (const bad of [{ ...base, extra: 1 }, { ...base, effect: "always" }, { ...base, expiresAt: 5 }, { ...base, tool: "snapshot" }, { ...base, tool: "nope" }, { ...base, scope: "write" }, null]) {
       await expect(host.addRule(bad as never)).rejects.toMatchObject({ code: "bad-rule" });
     }
+    const { host: full, setTime } = setup();
+    for (let i = 0; i < 500; i++) await full.addRule({ ...base, expiresAt: 2_000_000 });
+    await expect(full.addRule(base)).rejects.toMatchObject({ code: "bad-rule" });
+    setTime(2_000_000);
+    expect(await full.addRule(base)).toMatchObject(base);
   });
 
   it("U15: a removed rule stops at once", async () => {
