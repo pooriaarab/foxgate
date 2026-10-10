@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "foxgate — try exact-action approvals",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "See how foxgate approves the exact action of an AI agent: a simulated agent asks to send a form, and you approve or deny it.",
   "icons": {
     "48": "icons/icon-48.png",
