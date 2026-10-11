@@ -70,13 +70,13 @@ jobs:
           sudo curl -fsSL -o /usr/local/bin/cloudflared https://github.com/cloudflare/cloudflared/releases/download/2026.10.0/cloudflared-linux-amd64
           sudo chmod +x /usr/local/bin/cloudflared
           cloudflared --version
-      - run: pnpm e2e:ichabod
+      - run: pnpm e2e
         env:
+          FOXKIT_BROWSER: ichabod
           ICHABOD_API_KEY: ${{ secrets.ICHABOD_API_KEY }}
-          ICHABOD_WS_URL: ${{ secrets.ICHABOD_WS_URL }}
           ICHABOD_GECKO: ${{ matrix.gecko }}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: e2e-ichabod-${{ matrix.gecko }}
-          path: artifacts/e2e-ichabod-*.json
+          path: artifacts/e2e-*.json
