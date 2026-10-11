@@ -1,7 +1,9 @@
 // The E2E test: install the built demo extension (dist-ext/) in a real
 // Firefox, drive its popup, and write artifacts/e2e-<date>.json. It checks
 // failure modes E1-E6 in docs/failure-modes.md.
-// Usage: pnpm e2e [--headed] [--screenshots <dir>]. Env: FIREFOX (the Firefox binary).
+// Usage: pnpm e2e [--headed] [--screenshots <dir>]. Env: FIREFOX (the Firefox
+// binary), or FOXKIT_BROWSER=ichabod with ICHABOD_API_KEY (and ICHABOD_GECKO)
+// to run on Ichabod, as CI does.
 //
 // WebDriver BiDi cannot take a screenshot of a moz-extension: page. With
 // --screenshots, the test also serves the same popup over http with a stub
