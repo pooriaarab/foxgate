@@ -6,19 +6,26 @@
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
-    <h1>foxgate</h1>
-    <section>
-      <h2>Agent (simulated)</h2>
-      <p>The agent wants to submit the checkout form on checkout.example.com.</p>
-      <button id="ask">Ask to submit the form</button>
-      <p>Last ask: <output id="asked"></output></p>
-      <button id="redeem" disabled>Run the approved action</button>
-      <button id="tamper" disabled>Run a changed action (plan: pro)</button>
-      <p>Last run: <output id="result"></output></p>
+    <header>
+      <img class="mark" src="icons/icon-48.png" alt="" width="22" height="22" />
+      <h1>foxgate</h1>
+      <span class="chip">Demo</span>
+    </header>
+    <section class="card agent">
+      <h2>Simulated agent</h2>
+      <p class="muted">The agent wants to submit the checkout form on checkout.example.com.</p>
+      <button id="ask" class="primary">Ask to submit the form</button>
+      <p class="status">Last ask <output id="asked"></output></p>
+      <div class="runs">
+        <button id="redeem" disabled>Run as approved</button>
+        <button id="tamper" disabled>Run with a change</button>
+      </div>
+      <p class="hint">A change sets the plan to pro. foxgate refuses it.</p>
+      <p class="status">Last run <output id="result"></output></p>
     </section>
     <section>
       <h2>Waiting for you</h2>
-      <p id="none">No request waits.</p>
+      <p id="none" class="empty">No request waits.</p>
       <ul id="pending"></ul>
     </section>
     <section>
