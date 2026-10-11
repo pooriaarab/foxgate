@@ -1,12 +1,105 @@
-body { font: 14px/1.4 system-ui, sans-serif; margin: 12px; width: 420px; color: #1b1b1f; }
-h1 { font-size: 18px; margin: 0 0 8px; }
-h2 { font-size: 14px; margin: 12px 0 4px; }
-section { border-top: 1px solid #ddd; }
-button { margin: 2px 4px 2px 0; padding: 4px 10px; }
-output { font-weight: 600; }
-#pending { list-style: none; padding: 0; }
-#pending li { border: 1px solid #ccc; border-radius: 6px; padding: 8px; margin: 6px 0; }
-pre { white-space: pre-wrap; word-break: break-all; background: #f4f4f6; padding: 6px; margin: 4px 0; font-size: 12px; }
-.approve { background: #0a7d32; color: #fff; border: 0; }
-.reject { background: #b3261e; color: #fff; border: 0; }
-#log { padding-left: 20px; font-size: 12px; color: #444; }
+/* foxgate popup. The base is the fox* UI kit from foxmate: dark first,
+   light by the OS setting, one orange accent for "you, now". */
+:root {
+  color-scheme: dark;
+  --bg: oklch(0.155 0.004 60);
+  --panel: oklch(0.195 0.005 60);
+  --raise: oklch(0.225 0.006 60);
+  --code: oklch(0.13 0.004 60);
+  --hover: oklch(1 0 0 / 0.06);
+  --line: oklch(1 0 0 / 0.08);
+  --line-strong: oklch(1 0 0 / 0.14);
+  --text: oklch(0.95 0.006 80);
+  --muted: oklch(0.73 0.01 70);
+  --accent: oklch(0.73 0.165 52);
+  --accent-ink: oklch(0.2 0.03 50);
+  --ask-bg: oklch(0.73 0.165 52 / 0.08);
+  --ask-line: oklch(0.73 0.165 52 / 0.35);
+  --ok: oklch(0.77 0.14 152);
+  --bad: oklch(0.7 0.17 25);
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --fast: 160ms;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    --bg: oklch(0.985 0.003 80);
+    --panel: oklch(1 0 0);
+    --raise: oklch(0.955 0.005 80);
+    --code: oklch(0.965 0.004 80);
+    --hover: oklch(0 0 0 / 0.05);
+    --line: oklch(0 0 0 / 0.08);
+    --line-strong: oklch(0 0 0 / 0.15);
+    --text: oklch(0.21 0.01 60);
+    --muted: oklch(0.47 0.012 60);
+    --accent: oklch(0.6 0.17 45);
+    --accent-ink: oklch(0.99 0.01 80);
+    --ask-bg: oklch(0.6 0.17 45 / 0.07);
+    --ask-line: oklch(0.6 0.17 45 / 0.35);
+    --ok: oklch(0.52 0.13 152);
+    --bad: oklch(0.53 0.19 25);
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 14px 16px 18px; width: 420px; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
+h1, h2, p { margin: 0; }
+[hidden] { display: none !important; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.muted, .hint { color: var(--muted); }
+.hint { font-size: 12.5px; margin-top: 6px; }
+
+header { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+.mark { border-radius: 6px; }
+h1 { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+.chip { margin-left: auto; border: 1px solid var(--line-strong); border-radius: 999px; padding: 1px 10px; font-size: 12px; font-weight: 500; color: var(--muted); }
+h2 { font-size: 13.5px; font-weight: 600; margin: 20px 0 8px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px 16px; }
+.card h2 { margin-top: 0; margin-bottom: 4px; }
+
+button {
+  font: inherit; font-size: 13.5px; font-weight: 550; color: var(--text);
+  background: transparent; border: 1px solid var(--line-strong); border-radius: 10px;
+  height: 34px; padding: 0 14px; cursor: pointer;
+  transition: background-color var(--fast) var(--ease-out), transform 120ms var(--ease-out), opacity var(--fast);
+}
+button:hover { background: var(--hover); }
+button:active:not(:disabled) { transform: scale(0.97); }
+button:disabled { opacity: 0.45; cursor: default; }
+button.primary { background: var(--accent); border-color: transparent; color: var(--accent-ink); }
+button.primary:hover { background: oklch(from var(--accent) calc(l + 0.04) c h); }
+button.ghost { border-color: transparent; color: var(--muted); }
+button.ghost:hover { color: var(--text); }
+
+.agent #ask { margin-top: 12px; }
+.runs { display: flex; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+.runs button { flex: 1; padding: 0 10px; }
+.status { display: flex; align-items: baseline; gap: 8px; margin-top: 8px; font-size: 13px; color: var(--muted); }
+output { font: 12.5px/1.5 var(--mono); color: var(--text); overflow-wrap: anywhere; }
+output:empty::before { content: "none yet"; font-family: system-ui, sans-serif; font-size: 13px; color: var(--muted); }
+
+.empty { color: var(--muted); font-size: 13px; padding: 12px 14px; border: 1px dashed var(--line-strong); border-radius: 14px; }
+#pending { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+#pending li { background: var(--ask-bg); border: 1px solid var(--ask-line); border-radius: 16px; padding: 14px 16px 16px; }
+#pending li.new { animation: card-in 260ms var(--ease-out) both; }
+.ask-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.site-icon { --hue: 40; display: grid; place-items: center; flex: none; width: 26px; height: 26px; border-radius: 8px; background: oklch(0.5 0.1 var(--hue)); color: oklch(0.99 0 0); font-size: 13px; font-weight: 650; line-height: 1; }
+.site { font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.what { margin-top: 6px; }
+.caption { margin: 10px 0 4px; font-size: 12px; color: var(--muted); }
+pre { margin: 0; font: 12px/1.55 var(--mono); background: var(--code); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
+.answers { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+.answers .approve { min-width: 92px; }
+.answers .reject { margin-right: auto; padding-inline: 10px; }
+
+#log { list-style: none; margin: 0; padding: 0; }
+#log li { padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+#log li:last-child { border-bottom: 0; }
+#log li.bad { color: var(--bad); }
+#log .kind { font: 12px/1.5 var(--mono); color: var(--text); margin-right: 6px; }
+#log:empty::before { content: "No decision yet."; display: block; font-size: 13px; color: var(--muted); }
+
+@keyframes card-in { from { opacity: 0; transform: translateY(8px) scale(0.98); } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
