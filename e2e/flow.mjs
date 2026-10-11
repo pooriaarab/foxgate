@@ -1,5 +1,5 @@
-// The popup flow both E2E runs drive: e2e/run.mjs on a local Firefox and
-// e2e/ichabod.mjs on Ichabod. It checks failure modes E1-E3, E6 and E7 in
+// The popup flow e2e/run.mjs drives, on the real popup and on the preview
+// page. It checks failure modes E1-E3, E6 and E7 in
 // docs/failure-modes.md. check(name, expected, actual) records one result.
 import { cpSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

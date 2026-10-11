@@ -32,15 +32,13 @@
     "build:ext": "node scripts/build-ext.mjs",
     "lint:ext": "web-ext lint -s dist-ext --warnings-as-errors",
     "check:amo": "node scripts/amo-listing.mjs check",
-    "e2e": "node scripts/build-ext.mjs --e2e && node e2e/run.mjs",
-    "e2e:ichabod": "node scripts/build-ext.mjs --e2e && node e2e/ichabod.mjs"
+    "e2e": "node scripts/build-ext.mjs --e2e && node e2e/run.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.19.1",
-    "create-foxkit": "^0.1.0",
+    "create-foxkit": "^0.1.2",
     "esbuild": "^0.28.2",
     "oxlint": "^1.87.0",
-    "puppeteer-core": "^25.12.0",
     "typescript": "^7.0.2",
     "vitest": "^5.0.3",
     "web-ext": "^10.7.0"
