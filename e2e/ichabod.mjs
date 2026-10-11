@@ -21,6 +21,7 @@ if (!key || !host) throw new Error("Set ICHABOD_API_KEY and ICHABOD_WS_URL.");
 const gecko = process.env.ICHABOD_GECKO ?? "latest";
 const redact = (text) => String(text).replaceAll(key, "***");
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+const started = performance.now();
 const record = { startedAt: new Date().toISOString(), browser: "ichabod", gecko, ms: {}, checks: [] };
 const check = (name, expected, actual) => record.checks.push({ name, expected, actual, ok: JSON.stringify(actual) === JSON.stringify(expected) });
 const timed = async (name, fn) => {
@@ -130,14 +131,17 @@ try {
 } catch (error) {
   record.error = redact(error instanceof Error ? error.message : String(error));
 } finally {
-  await ichabod?.close();
+  // Never wait long on teardown: Ichabod frees the session on its own.
+  await timed("close", () => Promise.race([ichabod?.close(), sleep(5000)]));
   tun?.close();
   await site?.close();
   rmSync(dir, { recursive: true, force: true });
 }
+record.ms.total = Math.round(performance.now() - started);
 record.passed = !record.error && record.checks.length >= 8 && record.checks.every((c) => c.ok);
 const path = writeArtifact("artifacts", `e2e-ichabod-${gecko}`, record);
 for (const c of record.checks) console.log(`${c.ok ? "ok " : "BAD"} ${c.name}: ${JSON.stringify(c.actual)}`);
 console.log(`timings (ms): ${JSON.stringify(record.ms)} | ${record.firefox ?? "no browser"} | session ${record.sessionId ?? "none"}`);
 console.log(`${record.passed ? "PASS" : "FAIL"}${record.error ? `: ${record.error}` : ""} | ${path}`);
-process.exitCode = record.passed ? 0 : 1;
+// A WebSocket or a child process left open must not hold the job.
+process.exit(record.passed ? 0 : 1);
