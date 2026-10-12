@@ -31,7 +31,7 @@ jobs:
   # Cloudflare quick tunnel, and runs every check (E1-E7). One job per Gecko
   # version, so one run covers 155, 156 and 157.
   e2e:
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
       fail-fast: false
