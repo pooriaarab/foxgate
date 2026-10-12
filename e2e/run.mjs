@@ -38,6 +38,8 @@ try {
     site = await serve(dir);
     const page = await fox.open(`${site.url}/preview.html`);
     await flow(page, "Preview", check, (file) => page.screenshot({ path: join(shots, file) }));
+    // On Ichabod a session slows with each open tab, so close it.
+    await page.close();
     rmSync(dir, { recursive: true, force: true });
   }
 } catch (error) {
