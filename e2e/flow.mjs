@@ -65,7 +65,10 @@ export async function flow(page, name, check, shot = async () => {}) {
   const hostile = asked.slice("ask: ".length);
   const rows = await poll(page, (i) => {
     const li = document.querySelector(`#pending > li[data-id="${i}"]`);
-    return li && [...li.querySelectorAll(":scope > .fields > li")].map((n) => ({ text: n.checkVisibility() ? n.innerText : "hidden", isolated: getComputedStyle(n.querySelector(".value")).unicodeBidi === "isolate" && n.querySelector(".value").dir === "ltr" }));
+    return li && [...li.querySelectorAll(":scope > .fields > li")].map((n) => {
+      const value = n.querySelector(".value");
+      return { text: n.checkVisibility() ? n.innerText : "hidden", isolated: value !== null && getComputedStyle(value).unicodeBidi === "isolate" && value.dir === "ltr" };
+    });
   }, hostile);
   check(`${name} E9: the visible rows show the escapes, not the raw characters`, EXPECTED_HOSTILE, rows.map((r) => r.text));
   check(`${name} E9: each value is bidi-isolated`, [true, true], rows.map((r) => r.isolated));
