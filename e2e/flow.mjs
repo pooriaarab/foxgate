@@ -69,6 +69,9 @@ export async function flow(page, name, check, shot = async () => {}) {
   }, hostile);
   check(`${name} E9: the visible rows show the escapes, not the raw characters`, EXPECTED_HOSTILE, rows.map((r) => r.text));
   check(`${name} E9: each value is bidi-isolated`, [true, true], rows.map((r) => r.isolated));
+  // Deny it, so no request waits after the flow (E5 counts the stored statuses).
+  await click(page, `#pending > li[data-id="${hostile}"] .reject`);
+  await poll(page, (i) => !document.querySelector(`#pending > li[data-id="${i}"]`), hostile);
 }
 
 // A copy of dist-ext/ with preview.html: the same popup and background on a
