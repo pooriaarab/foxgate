@@ -1,6 +1,8 @@
 // The demo popup: the human side. Each waiting request is one card: the
 // site, one line of what happens, the exact JSON that a token binds to
 // behind Details, and Deny and Approve. An answered card keeps one line.
+import { visibleAction } from "../src/visible.ts";
+
 const send = (type, extra = {}) => browser.runtime.sendMessage({ type, ...extra });
 const $ = (id) => document.getElementById(id);
 
@@ -31,8 +33,9 @@ async function render() {
       if (!shown.has(request.id)) li.classList.add("new");
       shown.add(request.id);
       const head = el("div", "ask-head");
-      head.append(siteIcon(request.action.domain), el("span", "site", request.action.domain));
-      const exact = visibleAction(request.action);
+      const site = visibleAction(request.action).site;
+      head.append(siteIcon(site), el("span", "site", site));
+      const exact = exactLines(request.action);
       const text = el("pre", "", request.text);
       const approve = el("button", "approve primary", "Approve");
       const reject = el("button", "reject ghost", "Deny");
@@ -61,20 +64,24 @@ async function render() {
 }
 
 // What the token binds, in view: the tool and form, every field and its
-// value, the scope and any amount. Details adds only the raw JSON. The
-// user must see each value that changes the effect before Approve.
-function visibleAction(action) {
-  const { fields = {}, form, ...rest } = action.args ?? {};
-  const verb = action.tool.replaceAll("_", " ");
-  const lines = [el("p", "what", `${verb[0].toUpperCase()}${verb.slice(1)}${form ? ` ${form}` : ""}.`)];
-  const values = [...Object.entries(fields), ...Object.entries(rest)];
-  if (values.length) {
+// value, the scope and any amount (src/visible.ts, V1-V7). Details adds
+// only the raw JSON. Each value is bidi-isolated in its own span.
+function exactLines(action) {
+  const { what, rows, scope } = visibleAction(action);
+  const lines = [el("p", "what", what)];
+  if (rows.length) {
     const list = el("ul", "fields");
     list.setAttribute("aria-label", "Values the token binds");
-    for (const [key, value] of values) list.append(el("li", "", `${key}: ${typeof value === "string" ? value : JSON.stringify(value)}`));
+    for (const [key, value] of rows) {
+      const val = el("span", "value", value);
+      val.dir = "ltr";
+      const li = el("li", "");
+      li.append(el("span", "key", key), ": ", val);
+      list.append(li);
+    }
     lines.push(list);
   }
-  lines.push(el("p", "scope", `Scope: ${action.scope}${action.amount ? `. Amount: ${JSON.stringify(action.amount)}` : ""}.`));
+  lines.push(el("p", "scope", scope));
   return lines;
 }
 
