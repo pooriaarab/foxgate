@@ -8,6 +8,13 @@ import { poll } from "create-foxkit/e2e";
 
 export const EXPECTED_TEXT = '{"args":{"fields":{"email":"sam@example.com","plan":"basic"},"form":"#checkout"},"domain":"checkout.example.com","scope":"submit","tool":"submit_form"}';
 
+// The lines of the approval card that are in view, outside Details.
+export const EXPECTED_VISIBLE = ["Submit form #checkout.", "email: sam@example.com", "plan: basic", "Scope: submit."];
+
+// E9: a bidi override and a zero-width space (V1, V2). The visible rows must show them as escapes.
+const HOSTILE_ARGS = { form: "#checkout", fields: { email: "\u202Emoc.live@mas", plan: "ba\u200Bsic" } };
+export const EXPECTED_HOSTILE = ["email: \u27E8U+202E\u27E9moc.live@mas", "plan: ba\u27E8U+200B\u27E9sic"];
+
 const click = (page, selector) => page.evaluate((s) => document.querySelector(s).click(), selector);
 // Click a button, wait until the output counts one more answer, and return
 // the answer. The count (data-runs) changes even when the same text repeats.
@@ -22,19 +29,21 @@ async function approve(page, id) {
   await click(page, `#pending li[data-id="${id}"] .approve`);
   await poll(page, (i) => document.body.dataset.token === i, id);
 }
-const pendingIds = (page) => page.evaluate(() => [...document.querySelectorAll("#pending li")].map((li) => li.dataset.id));
+const pendingIds = (page) => page.evaluate(() => [...document.querySelectorAll("#pending > li")].map((li) => li.dataset.id));
 
 // Ask, then wait for the request to show. Returns its ID.
 async function ask(page) {
   const before = await pendingIds(page);
   await press(page, "#ask", "asked");
-  return poll(page, (b) => [...document.querySelectorAll("#pending li")].map((li) => li.dataset.id).find((id) => !b.includes(id)), before);
+  return poll(page, (b) => [...document.querySelectorAll("#pending > li")].map((li) => li.dataset.id).find((id) => !b.includes(id)), before);
 }
 
 export async function flow(page, name, check, shot = async () => {}) {
   await poll(page, () => document.body.dataset.ready === "1");
   let id = await ask(page);
   check(`${name} E1: the request shows the exact action`, EXPECTED_TEXT, await page.evaluate((i) => document.querySelector(`#pending li[data-id="${i}"] pre`).textContent, id));
+  // innerText of a node that is not displayed (for example in a closed <details>) is "", so this proves the user sees each value.
+  check(`${name} E1: the user sees the form, each field value and the scope`, EXPECTED_VISIBLE, await page.evaluate((i) => [...document.querySelectorAll(["> .what", "> .fields > li", "> .scope"].map((part) => `#pending li[data-id="${i}"] ${part}`).join(", "))].map((n) => (n.checkVisibility() ? n.innerText : "hidden")), id));
   await shot("approval-waiting.png");
   await approve(page, id);
   check(`${name} E2: a changed action is refused`, "deny: action-changed", await press(page, "#tamper", "result"));
@@ -49,6 +58,23 @@ export async function flow(page, name, check, shot = async () => {}) {
   await click(page, `#pending li[data-id="${id}"] .reject`);
   await poll(page, (i) => !document.querySelector(`#pending li[data-id="${i}"]`), id);
   check(`${name} E6: a rejected action is not asked again`, "deny: rejected", await press(page, "#ask", "asked"));
+
+  const asked = await page.evaluate((args) => browser.runtime.sendMessage({ type: "agent:ask-args", args }), HOSTILE_ARGS);
+  check(`${name} E9: the agent asks with a bidi and a zero-width value`, true, asked.startsWith("ask: "));
+  await press(page, "#ask", "asked"); // The popup renders again after an ask.
+  const hostile = asked.slice("ask: ".length);
+  const rows = await poll(page, (i) => {
+    const li = document.querySelector(`#pending > li[data-id="${i}"]`);
+    return li && [...li.querySelectorAll(":scope > .fields > li")].map((n) => {
+      const value = n.querySelector(".value");
+      return { text: n.checkVisibility() ? n.innerText : "hidden", isolated: value !== null && getComputedStyle(value).unicodeBidi === "isolate" && value.dir === "ltr" };
+    });
+  }, hostile);
+  check(`${name} E9: the visible rows show the escapes, not the raw characters`, EXPECTED_HOSTILE, rows.map((r) => r.text));
+  check(`${name} E9: each value is bidi-isolated`, [true, true], rows.map((r) => r.isolated));
+  // Deny it, so no request waits after the flow (E5 counts the stored statuses).
+  await click(page, `#pending > li[data-id="${hostile}"] .reject`);
+  await poll(page, (i) => !document.querySelector(`#pending > li[data-id="${i}"]`), hostile);
 }
 
 // A copy of dist-ext/ with preview.html: the same popup and background on a
