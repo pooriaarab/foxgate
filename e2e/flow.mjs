@@ -8,6 +8,9 @@ import { poll } from "create-foxkit/e2e";
 
 export const EXPECTED_TEXT = '{"args":{"fields":{"email":"sam@example.com","plan":"basic"},"form":"#checkout"},"domain":"checkout.example.com","scope":"submit","tool":"submit_form"}';
 
+// The lines of the approval card that are in view, outside Details.
+export const EXPECTED_VISIBLE = ["Submit form #checkout.", "email: sam@example.com", "plan: basic", "Scope: submit."];
+
 const click = (page, selector) => page.evaluate((s) => document.querySelector(s).click(), selector);
 // Click a button, wait until the output counts one more answer, and return
 // the answer. The count (data-runs) changes even when the same text repeats.
@@ -35,6 +38,8 @@ export async function flow(page, name, check, shot = async () => {}) {
   await poll(page, () => document.body.dataset.ready === "1");
   let id = await ask(page);
   check(`${name} E1: the request shows the exact action`, EXPECTED_TEXT, await page.evaluate((i) => document.querySelector(`#pending li[data-id="${i}"] pre`).textContent, id));
+  // innerText of a node that is not displayed (for example in a closed <details>) is "", so this proves the user sees each value.
+  check(`${name} E1: the user sees the form, each field value and the scope`, EXPECTED_VISIBLE, await page.evaluate((i) => [...document.querySelectorAll(["> .what", "> .fields > li", "> .scope"].map((part) => `#pending li[data-id="${i}"] ${part}`).join(", "))].map((n) => (n.checkVisibility() ? n.innerText : "hidden")), id));
   await shot("approval-waiting.png");
   await approve(page, id);
   check(`${name} E2: a changed action is refused`, "deny: action-changed", await press(page, "#tamper", "result"));

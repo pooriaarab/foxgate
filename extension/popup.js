@@ -32,8 +32,7 @@ async function render() {
       shown.add(request.id);
       const head = el("div", "ask-head");
       head.append(siteIcon(request.action.domain), el("span", "site", request.action.domain));
-      const verb = request.action.tool.replaceAll("_", " ");
-      const what = el("p", "what", `${verb[0].toUpperCase()}${verb.slice(1)} on this site.`);
+      const exact = visibleAction(request.action);
       const text = el("pre", "", request.text);
       const approve = el("button", "approve primary", "Approve");
       const reject = el("button", "reject ghost", "Deny");
@@ -43,7 +42,7 @@ async function render() {
       answers.append(reject, approve);
       const details = el("details", "raw");
       details.append(el("summary", "", "Details"), el("p", "caption", "The token binds to this exact action:"), text);
-      li.append(head, what, details, answers);
+      li.append(head, ...exact, details, answers);
       return li;
     }),
     ...answered.values(),
@@ -61,6 +60,24 @@ async function render() {
   else delete document.body.dataset.token;
 }
 
+// What the token binds, in view: the tool and form, every field and its
+// value, the scope and any amount. Details adds only the raw JSON. The
+// user must see each value that changes the effect before Approve.
+function visibleAction(action) {
+  const { fields = {}, form, ...rest } = action.args ?? {};
+  const verb = action.tool.replaceAll("_", " ");
+  const lines = [el("p", "what", `${verb[0].toUpperCase()}${verb.slice(1)}${form ? ` ${form}` : ""}.`)];
+  const values = [...Object.entries(fields), ...Object.entries(rest)];
+  if (values.length) {
+    const list = el("ul", "fields");
+    list.setAttribute("aria-label", "Values the token binds");
+    for (const [key, value] of values) list.append(el("li", "", `${key}: ${typeof value === "string" ? value : JSON.stringify(value)}`));
+    lines.push(list);
+  }
+  lines.push(el("p", "scope", `Scope: ${action.scope}${action.amount ? `. Amount: ${JSON.stringify(action.amount)}` : ""}.`));
+  return lines;
+}
+
 // An answered card: no buttons, one line, a quiet frame. It drops data-id,
 // so a test or a re-render does not take it for a waiting request.
 function settle(li, text) {
@@ -68,7 +85,12 @@ function settle(li, text) {
   delete li.dataset.id;
   li.classList.remove("new");
   li.classList.add("settled");
-  li.querySelector(".answers").replaceWith(el("p", "answered", text));
+  // The answer takes the focus from the pressed button and is announced.
+  const done = el("p", "answered", text);
+  done.tabIndex = -1;
+  done.setAttribute("role", "status");
+  li.querySelector(".answers").replaceWith(done);
+  done.focus();
   return render();
 }
 

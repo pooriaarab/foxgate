@@ -86,6 +86,8 @@ output:empty::before { content: "none yet"; font-family: system-ui, sans-serif; 
 .site-icon { --hue: 40; display: grid; place-items: center; flex: none; width: 26px; height: 26px; border-radius: 8px; background: oklch(0.5 0.1 var(--hue)); color: oklch(0.99 0 0); font-size: 13px; font-weight: 650; line-height: 1; }
 .site { font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
 .what { margin-top: 6px; }
+.fields { margin: 6px 0 0; padding-left: 18px; font-size: 13px; overflow-wrap: anywhere; }
+.scope { margin-top: 4px; font-size: 13px; color: var(--muted); }
 .caption { margin: 10px 0 4px; font-size: 12px; color: var(--muted); }
 pre { margin: 0; font: 12px/1.55 var(--mono); background: var(--code); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
 .answers { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
