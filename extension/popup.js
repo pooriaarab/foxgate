@@ -1,5 +1,6 @@
-// The demo popup: the human side. It shows each waiting request with the
-// exact JSON that a token will be bound to, and Approve and Deny buttons.
+// The demo popup: the human side. Each waiting request is one card: the
+// site, one line of what happens, the exact JSON that a token binds to
+// behind Details, and Deny and Approve. An answered card keeps one line.
 const send = (type, extra = {}) => browser.runtime.sendMessage({ type, ...extra });
 const $ = (id) => document.getElementById(id);
 
@@ -15,6 +16,8 @@ function siteIcon(site) {
 }
 
 const shown = new Set();
+// Cards that got an answer here. They stay, with one line instead of the buttons.
+const answered = new Map();
 const el = (tag, className, textContent) => Object.assign(document.createElement(tag), { className, textContent });
 
 async function render() {
@@ -29,17 +32,21 @@ async function render() {
       shown.add(request.id);
       const head = el("div", "ask-head");
       head.append(siteIcon(request.action.domain), el("span", "site", request.action.domain));
-      const what = el("div", "what", `Wants to ${request.action.tool.replaceAll("_", " ")}. Scope: ${request.action.scope}.`);
+      const verb = request.action.tool.replaceAll("_", " ");
+      const what = el("p", "what", `${verb[0].toUpperCase()}${verb.slice(1)} on this site.`);
       const text = el("pre", "", request.text);
       const approve = el("button", "approve primary", "Approve");
       const reject = el("button", "reject ghost", "Deny");
-      approve.addEventListener("click", () => send("host:approve", { id: request.id }).then(render));
-      reject.addEventListener("click", () => send("host:reject", { id: request.id }).then(render));
+      approve.addEventListener("click", () => send("host:approve", { id: request.id }).then(() => settle(li, "Approved.")));
+      reject.addEventListener("click", () => send("host:reject", { id: request.id }).then(() => settle(li, "Denied.")));
       const answers = el("div", "answers");
       answers.append(reject, approve);
-      li.append(head, what, el("p", "caption", "The token binds to this exact action:"), text, answers);
+      const details = el("details", "raw");
+      details.append(el("summary", "", "Details"), el("p", "caption", "The token binds to this exact action:"), text);
+      li.append(head, what, details, answers);
       return li;
     }),
+    ...answered.values(),
   );
   $("log").replaceChildren(
     ...state.log.map((line) => {
@@ -52,6 +59,17 @@ async function render() {
   $("redeem").disabled = $("tamper").disabled = !state.tokenFor;
   if (state.tokenFor) document.body.dataset.token = state.tokenFor;
   else delete document.body.dataset.token;
+}
+
+// An answered card: no buttons, one line, a quiet frame. It drops data-id,
+// so a test or a re-render does not take it for a waiting request.
+function settle(li, text) {
+  answered.set(li.dataset.id, li);
+  delete li.dataset.id;
+  li.classList.remove("new");
+  li.classList.add("settled");
+  li.querySelector(".answers").replaceWith(el("p", "answered", text));
+  return render();
 }
 
 // Show an answer and count it in data-runs, so a repeated answer is still
