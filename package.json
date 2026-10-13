@@ -1,6 +1,6 @@
 {
   "name": "foxgate",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Policy, exact-action approvals, and spend caps for AI agents.",
   "type": "module",
   "license": "MIT",
