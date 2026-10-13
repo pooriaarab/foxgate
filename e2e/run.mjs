@@ -29,7 +29,7 @@ try {
   check("E4: the real public suffix list takes *.example.co.uk", null, (await grant(["*.example.co.uk"])).error);
   const stored = await popup.evaluate(() => browser.storage.local.get(null));
   check("E5: storage.local holds the foxgate state and nothing else", ["foxgate"], Object.keys(stored));
-  check("E5: the stored requests reached each status", ["rejected", "used", "used"], stored.foxgate.requests.map((r) => r.status).toSorted());
+  check("E5: the stored requests reached each status", ["rejected", "rejected", "used", "used"], stored.foxgate.requests.map((r) => r.status).toSorted());
   check("E5: no key in storage", false, /"key"|CryptoKey/i.test(JSON.stringify(stored)));
   if (shots) {
     // The same popup over http, with a stub browser object, for screenshots.

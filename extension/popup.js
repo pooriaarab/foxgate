@@ -1,5 +1,8 @@
-// The demo popup: the human side. It shows each waiting request with the
-// exact JSON that a token will be bound to, and Approve and Deny buttons.
+// The demo popup: the human side. Each waiting request is one card: the
+// site, one line of what happens, the exact JSON that a token binds to
+// behind Details, and Deny and Approve. An answered card keeps one line.
+import { visibleAction } from "../src/visible.ts";
+
 const send = (type, extra = {}) => browser.runtime.sendMessage({ type, ...extra });
 const $ = (id) => document.getElementById(id);
 
@@ -15,6 +18,8 @@ function siteIcon(site) {
 }
 
 const shown = new Set();
+// Cards that got an answer here. They stay, with one line instead of the buttons.
+const answered = new Map();
 const el = (tag, className, textContent) => Object.assign(document.createElement(tag), { className, textContent });
 
 async function render() {
@@ -28,18 +33,22 @@ async function render() {
       if (!shown.has(request.id)) li.classList.add("new");
       shown.add(request.id);
       const head = el("div", "ask-head");
-      head.append(siteIcon(request.action.domain), el("span", "site", request.action.domain));
-      const what = el("div", "what", `Wants to ${request.action.tool.replaceAll("_", " ")}. Scope: ${request.action.scope}.`);
+      const site = visibleAction(request.action).site;
+      head.append(siteIcon(site), el("span", "site", site));
+      const exact = exactLines(request.action);
       const text = el("pre", "", request.text);
       const approve = el("button", "approve primary", "Approve");
       const reject = el("button", "reject ghost", "Deny");
-      approve.addEventListener("click", () => send("host:approve", { id: request.id }).then(render));
-      reject.addEventListener("click", () => send("host:reject", { id: request.id }).then(render));
+      approve.addEventListener("click", () => send("host:approve", { id: request.id }).then(() => settle(li, "Approved.")));
+      reject.addEventListener("click", () => send("host:reject", { id: request.id }).then(() => settle(li, "Denied.")));
       const answers = el("div", "answers");
       answers.append(reject, approve);
-      li.append(head, what, el("p", "caption", "The token binds to this exact action:"), text, answers);
+      const details = el("details", "raw");
+      details.append(el("summary", "", "Details"), el("p", "caption", "The token binds to this exact action:"), text);
+      li.append(head, ...exact, details, answers);
       return li;
     }),
+    ...answered.values(),
   );
   $("log").replaceChildren(
     ...state.log.map((line) => {
@@ -52,6 +61,44 @@ async function render() {
   $("redeem").disabled = $("tamper").disabled = !state.tokenFor;
   if (state.tokenFor) document.body.dataset.token = state.tokenFor;
   else delete document.body.dataset.token;
+}
+
+// What the token binds, in view: the tool and form, every field and its
+// value, the scope and any amount (src/visible.ts, V1-V7). Details adds
+// only the raw JSON. Each value is bidi-isolated in its own span.
+function exactLines(action) {
+  const { what, rows, scope } = visibleAction(action);
+  const lines = [el("p", "what", what)];
+  if (rows.length) {
+    const list = el("ul", "fields");
+    list.setAttribute("aria-label", "Values the token binds");
+    for (const [key, value] of rows) {
+      const val = el("span", "value", value);
+      val.dir = "ltr";
+      const li = el("li", "");
+      li.append(el("span", "key", key), ": ", val);
+      list.append(li);
+    }
+    lines.push(list);
+  }
+  lines.push(el("p", "scope", scope));
+  return lines;
+}
+
+// An answered card: no buttons, one line, a quiet frame. It drops data-id,
+// so a test or a re-render does not take it for a waiting request.
+function settle(li, text) {
+  answered.set(li.dataset.id, li);
+  delete li.dataset.id;
+  li.classList.remove("new");
+  li.classList.add("settled");
+  // The answer takes the focus from the pressed button and is announced.
+  const done = el("p", "answered", text);
+  done.tabIndex = -1;
+  done.setAttribute("role", "status");
+  li.querySelector(".answers").replaceWith(done);
+  done.focus();
+  return render();
 }
 
 // Show an answer and count it in data-runs, so a repeated answer is still
