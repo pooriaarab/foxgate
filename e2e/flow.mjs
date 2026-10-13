@@ -25,13 +25,13 @@ async function approve(page, id) {
   await click(page, `#pending li[data-id="${id}"] .approve`);
   await poll(page, (i) => document.body.dataset.token === i, id);
 }
-const pendingIds = (page) => page.evaluate(() => [...document.querySelectorAll("#pending li")].map((li) => li.dataset.id));
+const pendingIds = (page) => page.evaluate(() => [...document.querySelectorAll("#pending > li")].map((li) => li.dataset.id));
 
 // Ask, then wait for the request to show. Returns its ID.
 async function ask(page) {
   const before = await pendingIds(page);
   await press(page, "#ask", "asked");
-  return poll(page, (b) => [...document.querySelectorAll("#pending li")].map((li) => li.dataset.id).find((id) => !b.includes(id)), before);
+  return poll(page, (b) => [...document.querySelectorAll("#pending > li")].map((li) => li.dataset.id).find((id) => !b.includes(id)), before);
 }
 
 export async function flow(page, name, check, shot = async () => {}) {
