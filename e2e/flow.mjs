@@ -11,6 +11,10 @@ export const EXPECTED_TEXT = '{"args":{"fields":{"email":"sam@example.com","plan
 // The lines of the approval card that are in view, outside Details.
 export const EXPECTED_VISIBLE = ["Submit form #checkout.", "email: sam@example.com", "plan: basic", "Scope: submit."];
 
+// E9: a bidi override and a zero-width space (V1, V2). The visible rows must show them as escapes.
+const HOSTILE_ARGS = { form: "#checkout", fields: { email: "\u202Emoc.live@mas", plan: "ba\u200Bsic" } };
+export const EXPECTED_HOSTILE = ["email: \u27E8U+202E\u27E9moc.live@mas", "plan: ba\u27E8U+200B\u27E9sic"];
+
 const click = (page, selector) => page.evaluate((s) => document.querySelector(s).click(), selector);
 // Click a button, wait until the output counts one more answer, and return
 // the answer. The count (data-runs) changes even when the same text repeats.
@@ -54,6 +58,17 @@ export async function flow(page, name, check, shot = async () => {}) {
   await click(page, `#pending li[data-id="${id}"] .reject`);
   await poll(page, (i) => !document.querySelector(`#pending li[data-id="${i}"]`), id);
   check(`${name} E6: a rejected action is not asked again`, "deny: rejected", await press(page, "#ask", "asked"));
+
+  const asked = await page.evaluate((args) => browser.runtime.sendMessage({ type: "agent:ask-args", args }), HOSTILE_ARGS);
+  check(`${name} E9: the agent asks with a bidi and a zero-width value`, true, asked.startsWith("ask: "));
+  await press(page, "#ask", "asked"); // The popup renders again after an ask.
+  const hostile = asked.slice("ask: ".length);
+  const rows = await poll(page, (i) => {
+    const li = document.querySelector(`#pending > li[data-id="${i}"]`);
+    return li && [...li.querySelectorAll(":scope > .fields > li")].map((n) => ({ text: n.checkVisibility() ? n.innerText : "hidden", isolated: getComputedStyle(n.querySelector(".value")).unicodeBidi === "isolate" && n.querySelector(".value").dir === "ltr" }));
+  }, hostile);
+  check(`${name} E9: the visible rows show the escapes, not the raw characters`, EXPECTED_HOSTILE, rows.map((r) => r.text));
+  check(`${name} E9: each value is bidi-isolated`, [true, true], rows.map((r) => r.isolated));
 }
 
 // A copy of dist-ext/ with preview.html: the same popup and background on a

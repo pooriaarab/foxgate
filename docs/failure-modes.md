@@ -139,6 +139,23 @@ action only if every byte of it is the same.
 | A13 | The planner tries a changed action first, then the approved one. | The first try uses the token up. The second gets `deny` `token-used`. A planner that changes an approved action is not trusted again. | `tests/approvals.test.ts` |
 | A14 | The `onDecision` hook throws during `approve`. | `approve` throws. The request still waits, and no token exists. | `tests/approvals.test.ts` |
 
+## What the approval card shows (`src/visible.ts`)
+
+The card shows each value the token binds as text. If that text can look
+like a different value, the human approves one thing and the token binds
+another. `visibleValue` and `visibleAction` turn the action into the lines
+the card shows.
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| V1 | A bidi control (U+202A-U+202E, U+2066-U+2069) reorders the text, so `\u202Emoc.live@mas` reads as `sam@evil.com`. | Each format character shows as a visible escape, for example `⟨U+202E⟩`. | `tests/visible.test.ts` |
+| V2 | An invisible character (U+200B-U+200F, U+2060, U+FEFF, U+00AD) makes two different values look the same. | Each one shows as a visible escape. | `tests/visible.test.ts` |
+| V3 | A control character (C0, DEL, C1) or a line or paragraph separator collapses, so a newline looks like a space. | Each one shows as a visible escape, for example `⟨U+000A⟩`. | `tests/visible.test.ts` |
+| V4 | A value that is not a string shows as `[object Object]` or not at all. | A string shows as it is. Any other value shows as its JSON. An empty string shows as `""`. | `tests/visible.test.ts` |
+| V5 | A falsy `form` (`0`, `""`, `false`) drops out of the card. | `form` shows whenever it is not `undefined`. | `tests/visible.test.ts` |
+| V6 | `fields` is `null` or a string, so the card throws (no card renders) or shows one row per character. | A `fields` that is not a plain object shows as one row with its JSON. | `tests/visible.test.ts` |
+| V7 | The domain carries a format character. | The domain gets the same escapes. | `tests/visible.test.ts` |
+
 ## User rules
 
 A user rule is a standing answer that the user gives for one site: "always
@@ -199,6 +216,7 @@ popup. The checks below need a real browser, so the E2E test covers them.
 | E6 | The human clicks Deny. | The request leaves the list, and the same action gets `deny: rejected`. | `e2e/run.mjs` |
 | E7 | The agent asks again while it still holds a used token. The popup then says it holds a token for the new request, and a run right after the approval uses the old token. | When the agent asks, it drops its old token. The popup shows a token only for the request that the token was approved for. | `e2e/run.mjs` |
 | E8 | Two runs in a row give the same answer, so a test that waits for the text to change waits forever. | Each output counts its answers in `data-runs`. The E2E test waits for the count, not for new text. | `e2e/run.mjs` |
+| E9 | The popup shows a bidi or a zero-width value raw, so the visible row differs from the bound value (V1, V2). | The card row shows the escapes, outside Details, and each value is bidi-isolated. | `e2e/run.mjs` |
 
 ## AMO release build and listed submission (`scripts/amo-listing.mjs`)
 
