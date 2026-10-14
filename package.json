@@ -1,7 +1,7 @@
 {
   "name": "foxgate",
   "version": "0.1.5",
-  "description": "Policy, exact-action approvals, and spend caps for AI agents.",
+  "description": "TypeScript policy library for AI agent tool authorization, exact-action approvals, domain grants, and spend caps in Node.js and Firefox.",
   "type": "module",
   "license": "MIT",
   "author": "Pooria Arab",
@@ -42,5 +42,19 @@
     "typescript": "^7.0.2",
     "vitest": "^5.0.3",
     "web-ext": "^10.7.0"
-  }
+  },
+  "keywords": [
+    "TypeScript",
+    "Node.js",
+    "Firefox",
+    "WebExtensions",
+    "Web Crypto",
+    "ai-agents",
+    "authorization",
+    "policy",
+    "approvals",
+    "spend-caps",
+    "domain-grants",
+    "human-in-the-loop"
+  ]
 }
