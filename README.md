@@ -1,59 +1,56 @@
 # foxgate
 
-<p align="center">Policy, exact-action approvals, and spend caps for AI agents.</p>
+[![npm version](https://img.shields.io/npm/v/foxgate)](https://www.npmjs.com/package/foxgate)
+[![downloads/month](https://img.shields.io/npm/dm/foxgate)](https://www.npmjs.com/package/foxgate)
+[![license](https://img.shields.io/npm/l/foxgate)](https://www.npmjs.com/package/foxgate)
+[![runtime dependencies](https://img.shields.io/badge/runtime_dependencies-0-blue)](https://www.npmjs.com/package/foxgate)
 
-<p align="center">
-  <a href="https://github.com/pooriaarab/foxgate/actions"><img src="https://github.com/pooriaarab/foxgate/actions/workflows/ci.yml/badge.svg" alt="CI"/></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License MIT"/></a>
-</p>
+[Package](https://www.npmjs.com/package/foxgate) · [Quickstart](#check-your-first-action) · [API](#createfoxgateoptions) · [Limits](#deliverybehavior-limits)
 
-foxgate stands between an AI agent and the actions it wants to do. Your app
-adds grants. The agent asks before each action. foxgate answers `allow`,
-`deny`, or `ask`. When it asks, a human approves one exact action, and the
-token works for that action only, one time. The core is plain TypeScript with
-no browser dependency. It runs in Node 24+ and in a Firefox extension.
+foxgate is an open-source TypeScript policy library for developers who authorize AI agent tool calls.
+It returns `allow`, `deny`, or `ask` from domain grants, approval rules, and spend limits.
+Your application enforces each decision before it executes an action.
 
 ## Install
 
-```bash
-npm i foxgate
+```sh
+npm install foxgate
 ```
 
-## Example
+Requires Node.js 24 or later for the declared Node runtime.
+The core also runs in Firefox extensions with Web Crypto support.
+It includes TypeScript declarations and has zero runtime dependencies.
+
+## Check your first action
+
+Save this code as `example.mjs`:
 
 ```js
 import { createFoxgate } from "foxgate";
 
-// Your app registers the tools and keeps `host`. The AI planner gets only `gate`.
-const tools = { checkout: { scope: "pay", amount: (args) => ({ value: args.total, currency: "USD" }) } };
-const { gate, host } = createFoxgate({ tools });
-await host.addGrant({ scope: "pay", domains: ["shop.example.com"], spendCap: { value: 5000, currency: "USD" } });
+const { gate, host } = createFoxgate({ tools: { submit: "submit" } });
+await host.addGrant({ scope: "submit", domains: ["shop.example.com"] });
+const action = {
+  tool: "submit", args: { cart: "demo" },
+  domain: "shop.example.com", scope: "submit",
+};
+const decision = await gate.check(action);
+if (decision.decision !== "ask") throw new Error("Expected approval request");
+console.log(decision.decision); // ask
+console.log((await host.pending())[0].text); // JSON for your approval UI
 
-const action = { tool: "checkout", args: { cart: "c-42", total: 1999 }, domain: "shop.example.com", scope: "pay" };
-const asked = await gate.check(action);
-console.log(asked.decision); // "ask"
-
-const [request] = await host.pending();
-console.log(request.text); // the exact JSON that the human approves
-const token = await host.approve(asked.requestId);
-
-const changed = { ...action, args: { cart: "c-42", total: 4999 } };
-console.log((await gate.redeem(token, changed)).reason); // "action-changed"
-const token2 = await host.approve((await gate.check(action)).requestId);
-console.log((await gate.redeem(token2, action)).decision); // "allow"
-console.log((await gate.redeem(token2, action)).reason); // "token-used"
+// Demo only: simulate a human approval. Production code must collect that answer.
+const token = await host.approve(decision.requestId);
+const approved = await gate.redeem(token, action);
+console.log(approved.decision); // allow
+if (approved.decision === "allow") console.log(approved.action);
+console.log((await gate.redeem(token, action)).reason); // token-used
 ```
 
-## Use cases
-
-| Who | What they build | How foxgate helps |
-|---|---|---|
-| A browser agent author (for example foxmate) | An agent that fills and submits forms in the user's own browser | Reading and filling run on grants. Submitting and paying stop for a human, who sees the exact JSON. |
-| An MCP server author | Tools that send email, open pull requests, or delete files | The server calls `gate.check` before each tool call and returns the request to the client for approval. |
-| A team that runs CI bots | A bot that buys test devices or cloud credits | A `pay` grant with `approval: "never"`, a `spendCap`, and `maxUses`. All jobs call one gate, for example in one small service. Then the bot cannot spend past the cap, also when two jobs ask at the same time. |
-| A QA engineer | Browser automation that runs against staging sites | Exact-host grants keep the scripts on the staging hosts. `evil-staging.com` does not match `staging.com`. |
-| A developer on any agent framework | A LangChain, Vercel AI SDK, or custom tool loop | Wrap each tool in `check`, and in `redeem` when the answer is `ask`. Deny is the default, so a new tool is blocked until the host registers it with its scope and a grant covers it. |
-| An audit log author (for example foxtrail) | A tamper-evident record of agent decisions | The `onDecision` hook gets every decision before it takes effect. If the hook throws, the answer is `deny`. |
+Run `node example.mjs`. Expect `ask`, the canonical action JSON, `allow`, and `token-used`.
+No credentials, environment variables, or `.env` loader are required.
+The example authorizes a simulated action; it does not submit a form.
+Keep `host` outside the planner's execution context.
 
 ## How it works
 
@@ -112,9 +109,59 @@ All state changes in one gate run one at a time, so two actions cannot pass a
 cap together. This holds for one gate only, so use one gate for each store.
 foxgate stores the latest time it saw, so a clock that goes back cannot make
 an expired grant or token valid again. It stores valid nonces, not used ones,
-so lost storage makes tokens invalid. Every failure mode has a test: see [docs/failure-modes.md](docs/failure-modes.md).
+so lost storage makes tokens invalid.
 
-## API
+## Why it exists
+
+An agent's tool loop needs a decision before it submits data or spends money.
+Open Policy Agent and Cerbos provide broader policy authorization systems.
+foxgate keeps domain grants, approval requests, one-use tokens, and spend accounting inside your JavaScript application.
+
+## Compare
+
+Scope checked on 2026-10-14 against the linked product documentation.
+
+| Scope | foxgate | [Open Policy Agent](https://www.openpolicyagent.org/docs) | [Cerbos](https://docs.cerbos.dev/cerbos/latest/index.html) |
+| --- | --- | --- | --- |
+| Primary focus | Agent action grants and approval tokens | General-purpose policy evaluation | Application authorization |
+| Setup here | In-process TypeScript library | Policy engine | Policy decision point |
+| Configuration | Tool registry, grants, user rules | Policies | Policies |
+
+## Coverage
+
+Source inventory: four action scopes, two storage adapters, and three user-rule effects.
+foxgate has no built-in LangChain, Vercel AI SDK, or vendor API adapter.
+Your code wraps those calls if needed.
+No credential-based vendor integration tests apply to the core library.
+
+| Runtime or surface | Status | Scope |
+| --- | --- | --- |
+| Node.js | Implemented | In-process policy checks with Web Crypto |
+| Firefox WebExtensions | Implemented | Storage adapter and demo approval interface |
+| Web Crypto | Implemented | Signed tokens and action digests |
+| `memoryStore` | Implemented | Ephemeral state |
+| `storageAreaStore` | Implemented | WebExtension-compatible storage area |
+| Public suffix provider | Caller-supplied | Required for wildcard grants and registrable-domain rules |
+| Managed policy service | — | No server is included |
+
+## Common use cases
+
+1. Node.js agent authors check a tool call before their executor sends email.
+2. Firefox extension developers keep one gate in a background context and render pending requests in a popup.
+3. Tool-server authors wrap Model Context Protocol (MCP) handlers with checks and human approval handling.
+4. QA teams grant access to exact staging hosts instead of broad domain substrings.
+5. Automation teams cap declared payment amounts through host-owned pricing functions and a single gate instance.
+
+## Features
+
+- Four scopes separate `read`, `fill`, `submit`, and `pay` grants.
+- Approval tokens bind canonical action data and permit one redemption.
+- Domain matching supports exact hosts and validated wildcard subdomains.
+- Spend caps, expiry, and use counts restrict matching grants.
+- User rules apply `allow`, `ask`, or `deny` to `read` and `submit` actions.
+- The `onDecision` hook records decisions and fails closed when it throws.
+
+## Runtime surfaces
 
 This package is a library only. It has no CLI and no MCP server. A policy
 check depends on stored state (uses, spend, waiting requests) and on a key
@@ -201,7 +248,13 @@ example, after an agent run reads private data, foxmate adds its grants
 without `rules`, so an `allow` rule cannot let the data out without a human.
 
 ```js
-const { gate, host } = createFoxgate({ tools, publicSuffix: browser.publicSuffix, ruleStore: storageAreaStore(browser.storage.local) });
+import { createFoxgate, storageAreaStore } from "foxgate";
+
+const { gate, host } = createFoxgate({
+  tools: { click: "submit" },
+  publicSuffix: browser.publicSuffix,
+  ruleStore: storageAreaStore(browser.storage.local),
+});
 await host.addGrant({ scope: "submit", domains: ["shop.example.com"], rules: true });
 const rule = await host.addRule({ site: "example.com", scope: "submit", tool: "click", effect: "allow" });
 const d = await gate.check({ tool: "click", args: { controlId: "buy" }, domain: "shop.example.com", scope: "submit" });
@@ -220,6 +273,7 @@ console.log(d.decision, d.ruleId === rule.id); // "allow" true
 |---|---|
 | `memoryStore()` | Storage in memory. |
 | `storageAreaStore(area)` | Storage in a WebExtension area, for example `browser.storage.local`. |
+| `visibleAction(action)`, `visibleValue(value)` | Escapes invisible characters for approval displays. |
 | `canonicalJson(value)` | Sorted-key JSON. Throws for values that JSON cannot hold exactly. |
 | `normalizeHost(host)` | Lowercase punycode host. Throws for a URL, a port, or a path. |
 | `parsePattern(pattern, publicSuffix?)`, `matchesPattern(host, pattern)` | The domain rules that grants use. |
@@ -227,9 +281,6 @@ console.log(d.decision, d.ruleId === rule.id); // "allow" true
 | `FoxgateError` | Has a `code`: `not-json`, `too-large`, `bad-domain`, `bad-grant`, `bad-action`, `not-found`, `bad-state`, `bad-key`, `hook-failed`, `bad-tools`, or `bad-rule`. |
 
 ### Extension
-
-Install from AMO: [addons.mozilla.org/firefox/addon/foxgate](https://addons.mozilla.org/firefox/addon/foxgate/)
-(pending AMO review; the link works after approval).
 
 `extension/` is a walkthrough for Firefox 153+. A simulated agent asks to submit a
 checkout form. The popup shows the waiting request with Approve and Deny, and
@@ -241,20 +292,7 @@ pnpm e2e          # loads the demo in Firefox and drives the popup
 pnpm build:ext    # builds dist-ext/; load it from about:debugging
 ```
 
-## Firefox APIs used
-
-| API | MDN | Why |
-|---|---|---|
-| Web Crypto `subtle.generateKey`, `sign`, `verify` (HMAC) | [generateKey](https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto/generateKey) | Sign tokens with a key that JavaScript cannot export. |
-| Web Crypto `subtle.digest` (SHA-256) | [digest](https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto/digest) | Bind a token to the canonical action text. |
-| `crypto.getRandomValues` | [getRandomValues](https://developer.mozilla.org/en-US/docs/Web/API/Crypto/getRandomValues) | Grant IDs, request IDs, and nonces. |
-| `URL` | [URL](https://developer.mozilla.org/en-US/docs/Web/API/URL) | Turn hosts into lowercase punycode. |
-| `publicSuffix.getDomain` (Firefox 153+, permission `publicSuffix`) | [publicSuffix](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/publicSuffix) | Refuse `*.` patterns on a public suffix such as `*.co.uk`, with no bundled list. Demo only. |
-| `storage.local` | [storage.local](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/storage/local) | Keep grants, requests, and spend. Demo only. |
-| `runtime.sendMessage`, `runtime.onMessage` | [runtime](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/runtime) | The popup talks to the background page. Demo only. |
-| `action` (`default_popup`) | [action](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/action) | The toolbar button that opens the approval popup. Demo only. |
-
-## Limits
+## Delivery/behavior limits
 
 - foxgate decides. It does not enforce. Your code must call `check` or
   `redeem` before each action and obey the answer.
@@ -281,30 +319,60 @@ pnpm build:ext    # builds dist-ext/; load it from about:debugging
 - The demo extension does not open the popup by itself and does not block
   network requests.
 
-## Part of the fox primitives
+## Integration guides
 
-```mermaid
-flowchart LR
-  foxkit[foxkit] -- template --> foxgate[foxgate]
-  foxgate --> foxloop[foxloop]
-  foxgate --> foxlend[foxlend]
-  foxgate --> foxvault[foxvault]
-  foxgate --> foxpay[foxpay]
-  foxgate -. onDecision hook .-> foxtrail[foxtrail]
-  foxloop --> foxmate[foxmate]
-  click foxkit "https://github.com/pooriaarab/foxkit"
-  click foxgate "https://github.com/pooriaarab/foxgate"
-  click foxloop "https://github.com/pooriaarab/foxloop"
-  click foxlend "https://github.com/pooriaarab/foxlend"
-  click foxvault "https://github.com/pooriaarab/foxvault"
-  click foxpay "https://github.com/pooriaarab/foxpay"
-  click foxtrail "https://github.com/pooriaarab/foxtrail"
-  click foxmate "https://github.com/pooriaarab/foxmate"
-```
+- [Node.js authorization loop](#check-your-first-action): check, collect approval, redeem, and execute the returned action.
+- [Firefox storage and user rules](#user-rules): keep rules in a WebExtension storage area.
+- [Firefox demo extension](#extension): build and inspect the approval walkthrough.
 
-foxgate depends on no other fox repo. foxtrail does not depend on foxgate
-either. An app connects them with the `onDecision` hook.
+## Status
+
+Version 0.1.5 is a 0.x release. Interfaces and storage formats can change.
+Use the issue channel listed on the [npm package](https://www.npmjs.com/package/foxgate) for support.
+Public customer case studies are not published here.
+
+## FAQ
+
+### What does foxgate authorize?
+
+foxgate authorizes registered tool actions under grants and rules.
+Your executor must check and enforce the decision before performing the action.
+
+### Which integrations are verified?
+
+foxgate implements Web Crypto signing and memory or WebExtension-compatible storage adapters.
+It has no built-in vendor API integrations to credential-check.
+
+### Does foxgate provide a managed authorization service?
+
+foxgate is an in-process library.
+You operate the policy state, approval interface, and executor.
+
+### How is foxgate different from Open Policy Agent?
+
+foxgate provides JavaScript action grants and approval-token state.
+[Open Policy Agent](https://www.openpolicyagent.org/docs) is a general-purpose policy engine.
+
+### How is foxgate different from Cerbos?
+
+foxgate keeps grants and approval tokens within your application.
+[Cerbos](https://docs.cerbos.dev/cerbos/latest/index.html) provides an authorization policy decision point.
+
+### Can foxgate enforce a payment cap by itself?
+
+foxgate checks declared amounts derived by your host tool registry.
+The executor must charge the approved amount and use one gate for shared accounting.
+
+### Do approvals survive a restart?
+
+foxgate creates an in-memory signing key by default.
+Old tokens fail after that key changes; persistent state does not preserve the default key.
+
+### Can an allow rule skip every approval?
+
+foxgate applies allow rules only to matching grants with `rules: true`.
+Rules support `read` and `submit`; they never remove expiry, use, or spend limits.
 
 ## License
 
-[MIT](LICENSE)
+MIT.
