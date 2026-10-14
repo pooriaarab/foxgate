@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "foxgate — try exact-action approvals",
+  "version": "0.1.6",
+  "description": "See how foxgate approves the exact action of an AI agent: a simulated agent asks to send a form, and you approve or deny it.",
+  "icons": {
+    "48": "icons/icon-48.png",
+    "96": "icons/icon-96.png",
+    "128": "icons/icon-128.png"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "foxgate@pooriaarab",
+      "strict_min_version": "153.0",
+      "data_collection_permissions": {
+        "required": [
+          "none"
+        ]
+      }
+    }
+  },
+  "permissions": [
+    "storage",
+    "publicSuffix"
+  ],
+  "background": {
+    "scripts": [
+      "background.js"
+    ]
+  },
+  "action": {
+    "default_title": "foxgate",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "48": "icons/icon-48.png",
+      "96": "icons/icon-96.png"
+    }
+  }
+}
