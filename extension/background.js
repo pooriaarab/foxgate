@@ -64,6 +64,8 @@ const handlers = {
 // The e2e test adds read grants to check the real public suffix list (E4).
 // Only the e2e build (build-ext.mjs --e2e) has this handler.
 if (__E2E__) {
+  // E9: the agent asks with values the test picks, here a bidi and a zero-width one.
+  handlers["agent:ask-args"] = async ({ args }) => show(await gate.check({ ...DEMO_ACTION, args }));
   handlers["host:grant"] = async ({ domains }) => {
     try {
       await host.addGrant({ scope: "read", domains });
