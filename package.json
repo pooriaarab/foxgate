@@ -1,6 +1,6 @@
 {
   "name": "foxgate",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "TypeScript policy library for AI agent tool authorization, exact-action approvals, domain grants, and spend caps in Node.js and Firefox.",
   "type": "module",
   "license": "MIT",
